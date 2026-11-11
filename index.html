@@ -1,0 +1,533 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style></head><body><title>Sunshine和小火龙呼呼</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@500;700&display=swap">
+<style>
+/* Layout: one 16:9 picture-book stage centred on a night-sky ground; captions and controls float on the stage. */
+:root{
+  --night:#1b2757; --night-deep:#121a3f; --paper:#fff9f0; --ink:#4a3340;
+  --pink:#f7a3c0; --pink-deep:#d9548a; --flame:#ff9a3c; --glow:#ffe27a;
+  --display:"ZCOOL KuaiLe","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --text:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--night-deep);color:var(--paper);font-family:var(--text);overflow:hidden;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;align-items:center;justify-content:center;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#stage{position:relative;width:min(100%,calc((100vh - 24px) * 16 / 9));max-width:100%;aspect-ratio:16/9;
+  background:var(--night);border-radius:calc(var(--u,10px) * 1.4);overflow:hidden;touch-action:none;
+  box-shadow:0 0 0 calc(var(--u,10px) * .35) rgba(247,163,192,.35)}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+#cap{position:absolute;left:50%;bottom:4%;transform:translateX(-50%);max-width:90%;width:max-content;white-space:pre-line;
+  background:rgba(255,249,240,.9);color:var(--ink);border:calc(var(--u,10px) * .28) solid var(--pink);
+  border-radius:calc(var(--u,10px) * 2.4);padding:calc(var(--u,10px) * 1.1) calc(var(--u,10px) * 2.6);
+  font-size:calc(var(--u,10px) * 2.7);font-weight:500;line-height:1.45;text-align:center;text-wrap:balance;
+  transition:opacity .25s;pointer-events:none}
+#cap.hint{background:rgba(27,39,87,.86);color:var(--paper);border-color:var(--glow)}
+#cap:empty{opacity:0}
+#bar{position:absolute;top:2.5%;right:1.8%;display:flex;gap:calc(var(--u,10px) * .8)}
+#bar button,.big{font-family:var(--display);cursor:pointer;border:0}
+#bar button{width:calc(var(--u,10px) * 4.6);height:calc(var(--u,10px) * 4.6);border-radius:50%;
+  background:rgba(255,249,240,.72);color:var(--ink);font-size:calc(var(--u,10px) * 2.1);line-height:1;
+  display:flex;align-items:center;justify-content:center}
+#bar button:hover{background:var(--paper)}
+#bar button[aria-pressed="true"]{background:var(--pink)}
+button:focus-visible{outline:calc(var(--u,10px) * .3) solid var(--glow);outline-offset:2px}
+#cover{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:calc(var(--u,10px) * 1.4);padding-bottom:6%;padding-left:34%}
+.big{background:var(--pink-deep);color:#fff;font-size:calc(var(--u,10px) * 3.6);
+  padding:calc(var(--u,10px) * 1.3) calc(var(--u,10px) * 4.4);border-radius:calc(var(--u,10px) * 4);
+  box-shadow:0 calc(var(--u,10px) * .5) 0 #a83a68}
+.big:active{transform:translateY(calc(var(--u,10px) * .3));box-shadow:0 calc(var(--u,10px) * .2) 0 #a83a68}
+#how{font-size:calc(var(--u,10px) * 1.9);color:var(--ink);background:rgba(255,249,240,.82);
+  padding:calc(var(--u,10px) * .6) calc(var(--u,10px) * 1.8);border-radius:calc(var(--u,10px) * 2)}
+#turn{position:fixed;inset:0;background:var(--night-deep);display:none;align-items:center;justify-content:center;
+  text-align:center;font-family:var(--display);font-size:22px;padding:24px;z-index:5}
+@media (orientation:portrait) and (max-width:600px){#turn{display:flex}}
+</style>
+
+<div id="stage">
+  <canvas id="cv" aria-label="绘本画面"></canvas>
+  <div id="cap" aria-live="polite"></div>
+  <div id="bar" hidden>
+    <button id="b-prev" title="上一段" aria-label="上一段">◀</button>
+    <button id="b-pause" title="暂停" aria-label="暂停或继续" aria-pressed="false">Ⅱ</button>
+    <button id="b-next" title="下一段" aria-label="下一段">▶</button>
+    <button id="b-music" title="音乐" aria-label="音乐开关" aria-pressed="false">♪</button>
+  </div>
+  <div id="cover">
+    <button class="big" id="b-start">开始讲故事</button>
+    <div id="how">按住屏幕是大火，轻轻点是小火</div>
+  </div>
+</div>
+<div id="turn">把手机横过来，<br>故事就开始啦</div>
+
+<script>
+const M = {"frames": {"s_title": [{"img": "s_title_0", "line": 0, "delay": 0.0}], "s_end": [{"img": "s_end_0", "line": 0, "delay": 0.0}], "s1": [{"img": "s1_0", "line": 0, "delay": 0.0}], "s2a": [{"img": "s2a_0", "line": 0, "delay": 0.0}], "s3a": [{"img": "s3a_0", "line": 0, "delay": 0.0}], "s4a": [{"img": "s4a_0", "line": 0, "delay": 0.0}, {"img": "s4a_1", "line": 1, "delay": 2.59}], "s4b": [{"img": "s4b_0", "line": 0, "delay": 0.0}, {"img": "s4b_1", "line": 2, "delay": 0.0}], "s5a": [{"img": "s5a_0", "line": 0, "delay": 0.0}, {"img": "s5a_1", "line": 0, "delay": 2.91}, {"img": "s5a_2", "line": 1, "delay": 0.0}], "s5b": [{"img": "s5b_0", "line": 0, "delay": 0.0}], "s6": [{"img": "s6_0", "line": 0, "delay": 0.0}], "s7a": [{"img": "s7a_0", "line": 0, "delay": 0.0}], "s8a": [{"img": "s8a_0", "line": 0, "delay": 0.0}, {"img": "s8a_1", "line": 2, "delay": 0.0}, {"img": "s8a_2", "line": 3, "delay": 0.0}], "s8b": [{"img": "s8b_0", "line": 0, "delay": 0.0}], "s9a": [{"img": "s9a_0", "line": 0, "delay": 0.0}, {"img": "s9a_1", "line": 0, "delay": 2.1}], "s9b": [{"img": "s9b_0", "line": 0, "delay": 0.0}], "s10b": [{"img": "s10b_0", "line": 0, "delay": 0.0}, {"img": "s10b_1", "line": 1, "delay": 0.0}], "s11": [{"img": "s11_0", "line": 0, "delay": 0.0}], "s12a": [{"img": "s12a_0", "line": 0, "delay": 0.0}, {"img": "s12a_1", "line": 1, "delay": 0.0}], "s12b": [{"img": "s12b_0", "line": 0, "delay": 0.0}, {"img": "s12b_1", "line": 1, "delay": 0.0}], "s14": [{"img": "s14_0", "line": 0, "delay": 0.0}, {"img": "s14_1", "line": 1, "delay": 0.0}], "s15a": [{"img": "s15a_0", "line": 0, "delay": 0.0}], "s15b": [{"img": "s15b_0", "line": 0, "delay": 0.0}, {"img": "s15b_1", "line": 1, "delay": 0.0}, {"img": "s15b_2", "line": 2, "delay": 0.0}], "s16b": [{"img": "s16b_0", "line": 0, "delay": 0.0}, {"img": "s16b_1", "line": 2, "delay": 0.0}], "s17": [{"img": "s17_0", "line": 0, "delay": 0.0}, {"img": "s17_1", "line": 1, "delay": 0.0}], "s18b": [{"img": "s18b_0", "line": 0, "delay": 0.0}], "s18c": [{"img": "s18c_0", "line": 0, "delay": 0.0}, {"img": "s18c_1", "line": 1, "delay": 0.0}]}, "sprites": {"flameR": {"w": 1303, "h": 645, "ax": 201.0, "ay": 322, "x": 723.7, "y": 498.2}, "stand": {"w": 230, "h": 419, "ax": 108.0, "ay": 410.0, "x": 300, "y": 860}, "runner": {"w": 482, "h": 454, "ax": 353.0, "ay": 410.0, "x": 300, "y": 860}, "rainbow": {"w": 1249, "h": 775, "ax": -36, "ay": -85, "x": 420, "y": 100}, "flame10": {"w": 730, "h": 400, "ax": 115.0, "ay": 165.0, "x": 978.5, "y": 549.0}, "sflame10": {"w": 208, "h": 208, "ax": 104.0, "ay": 144.0, "x": 1048.5, "y": 593.0}, "stardim": {"w": 121, "h": 141, "ax": 59, "ay": 87, "x": 878, "y": 566}, "starlit": {"w": 359, "h": 359, "ax": 179.4, "ay": 179.4, "x": 878, "y": 566}, "flameL": {"w": 438, "h": 254, "ax": 367.5, "ay": 126.5, "x": 1267.9, "y": 540.6}, "lit0": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 879.0, "y": 245.0}, "lit1": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 987.0, "y": 407.0}, "lit2": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 1176.0, "y": 380.0}, "lit3": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 757.5, "y": 366.5}, "lit4": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 1041.0, "y": 272.0}, "lit5": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 676.5, "y": 501.5}, "lit6": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 838.5, "y": 434.0}, "lit7": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 1108.5, "y": 488.0}, "lit8": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 1257.0, "y": 515.0}, "lit9": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 933.0, "y": 542.0}, "lit10": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 771.0, "y": 582.5}, "lit11": {"w": 156, "h": 156, "ax": 77.9, "ay": 77.9, "x": 1162.5, "y": 609.5}, "g14": {"w": 190, "h": 324, "ax": 93.0, "ay": 315.0, "x": 600, "y": 910}, "sh14": {"w": 228, "h": 174, "ax": 122.5, "ay": 170.8, "x": 1330, "y": 900}, "dr14": {"w": 82, "h": 85, "ax": 46.0, "ay": 51.5, "x": 960, "y": 690}, "firebehind": {"w": 948, "h": 1142, "ax": 474.0, "ay": 940.0, "x": 660, "y": 920}, "girl_teary": {"w": 402, "h": 664, "ax": 197.0, "ay": 645.5, "x": 660, "y": 1000}, "girl_cry": {"w": 329, "h": 664, "ax": 163.0, "ay": 645.5, "x": 660, "y": 1000}, "sheep15": {"w": 348, "h": 257, "ax": 193.0, "ay": 255.0, "x": 1420, "y": 960}, "drag16": {"w": 180, "h": 179, "ax": 74.0, "ay": 109.0, "x": 1060, "y": 600}, "sflame16": {"w": 78, "h": 78, "ax": 54.0, "ay": 39.0, "x": 968, "y": 574}, "girl_blow": {"w": 329, "h": 664, "ax": 163.0, "ay": 645.5, "x": 660, "y": 1000}, "girl_calm": {"w": 329, "h": 664, "ax": 163.0, "ay": 645.5, "x": 660, "y": 1000}, "puff": {"w": 210, "h": 145, "ax": 101.0, "ay": 77.0, "x": 0, "y": 0}, "heart": {"w": 65, "h": 59, "ax": 33, "ay": 25, "x": 0, "y": 0}, "bal_big": {"w": 436, "h": 717, "ax": 221.8, "ay": 703.5, "x": 960, "y": 880}, "bal_big5": {"w": 208, "h": 337, "ax": 103.5, "ay": 328.0, "x": 0, "y": 0}, "bal_small": {"w": 436, "h": 717, "ax": 221.8, "ay": 703.5, "x": 960, "y": 880}, "bal_small5": {"w": 208, "h": 337, "ax": 103.5, "ay": 328.0, "x": 0, "y": 0}, "starC": {"w": 174, "h": 174, "ax": 87.0, "ay": 87.0, "x": 0, "y": 0}, "peak": {"w": 1011, "h": 580, "ax": 504, "ay": 542, "x": 0, "y": 0}, "pines": {"w": 425, "h": 407, "ax": 210, "ay": 371, "x": 0, "y": 0}, "cloudS": {"w": 395, "h": 195, "ax": 188.0, "ay": 108.0, "x": 0, "y": 0}}, "lines": {"l0_0": {"text": "Sunshine的心口里，住着一只粉红色的小火龙。", "dur": 4.29}, "l0_1": {"text": "它只有一颗草莓那么大，名字叫呼呼。", "dur": 3.65}, "l0_2": {"text": "除了Sunshine，谁也看不见它。", "dur": 2.69}, "l1_0": {"text": "只要Sunshine心里有一件“特别特别想”的事，", "dur": 3.73}, "l1_1": {"text": "呼呼就会张开嘴巴——", "dur": 2.07}, "l1_2": {"text": "“呼——！”", "dur": 1.4}, "l2_0": {"text": "呼呼的火可厉害了。", "dur": 1.82}, "l2_1": {"text": "Sunshine想第一个冲到滑梯，呼——！脚下像装了小火箭。", "dur": 5.64}, "l2_2": {"text": "Sunshine想画一道全世界最大的彩虹，呼——！一口气画满了整张纸。", "dur": 6.67}, "l3_0": {"text": "可是有时候，火来得太快了。", "dur": 2.82}, "l3_1": {"text": "积木塔只差最后一块，哗啦——倒了。", "dur": 3.74}, "l3_2": {"text": "“呼————！”", "dur": 1.4}, "l3_3": {"text": "大火一下子冲上来，烧得Sunshine眼睛热热的，", "dur": 4.46}, "l3_4": {"text": "眼泪啪嗒、啪嗒，掉了下来。", "dur": 3.05}, "l4_0": {"text": "眼泪落在呼呼的脑袋上，“嗞——”，变成了一朵小白云。", "dur": 5.06}, "l4_1": {"text": "呼呼打了个嗝，火小了。", "dur": 2.43}, "l4_2": {"text": "Sunshine擦擦眼睛：“好啦，我们再来。”", "dur": 3.54}, "l5_0": {"text": "有一天，Sunshine听说：", "dur": 2.25}, "l5_1": {"text": "山的那一边有一棵星星树，一年只有一个晚上会结星星果。", "dur": 5.91}, "l5_2": {"text": "就是今天晚上！", "dur": 1.46}, "l5_3": {"text": "可是山那么高，路那么远。", "dur": 2.54}, "l6_0": {"text": "草地上躺着一只粉红色的热气球，瘪瘪的，没有火。", "dur": 5.31}, "l6_1": {"text": "Sunshine低头看看心口：“呼呼，你来！”", "dur": 3.68}, "l6_2": {"text": "“呼——大火！”", "dur": 1.4}, "l6_3": {"text": "气球鼓起来了，圆起来了，飞起来了！", "dur": 3.58}, "l7_0": {"text": "飞呀飞，一阵风吹来，气球歪了一下。", "dur": 3.82}, "l7_1": {"text": "Sunshine一着急，呼呼也着急——", "dur": 3.02}, "l7_2": {"text": "“呼————！！”", "dur": 1.4}, "l7_3": {"text": "火太大了！气球嗖地蹿上去，一头扎进了厚厚的云里。", "dur": 5.97}, "l7_4": {"text": "四周白茫茫的，什么也看不见。", "dur": 3.1}, "l7_5": {"text": "Sunshine的眼睛，又热热的了。", "dur": 2.66}, "l8_0": {"text": "一滴眼泪落下来，“嗞——”，又是一朵小白云。", "dur": 4.11}, "l8_1": {"text": "Sunshine看着小白云，忽然想到了什么。", "dur": 3.63}, "l8_2": {"text": "她吸了好大一口气，然后慢慢地、慢慢地吹，", "dur": 4.65}, "l8_3": {"text": "就像吹一碗很烫的汤：", "dur": 2.05}, "l8_4": {"text": "“呼～～～”", "dur": 2.1}, "l9_0": {"text": "呼呼歪着头，也学她：", "dur": 2.35}, "l9_1": {"text": "“呼～～～”", "dur": 2.1}, "l9_2": {"text": "大火变成了一朵圆圆的小火苗，像一支小蜡烛。", "dur": 4.5}, "l9_3": {"text": "气球不晃了，稳稳地从云里钻了出来。", "dur": 3.76}, "l9_4": {"text": "哇，满天都是星星。", "dur": 2.19}, "l10_0": {"text": "前面是高高的山顶——“呼呼，大火！”呼——！飞过去啦！", "dur": 5.53}, "l10_1": {"text": "下面是尖尖的树梢——“呼呼，小火。”呼～～轻轻擦过去。", "dur": 6.18}, "l10_2": {"text": "大火，小火，大火，小火。", "dur": 3.27}, "l10_3": {"text": "Sunshine和呼呼越飞越好。", "dur": 2.57}, "l11_0": {"text": "星星树到了。", "dur": 1.32}, "l11_1": {"text": "树下坐着一只小云羊，软软的，白白的，名字叫棉棉。", "dur": 5.85}, "l11_2": {"text": "“你们来啦！”棉棉说，“可是今年的星星果，一颗都不亮。”", "dur": 5.35}, "l11_3": {"text": "树下的小牌子上写着：", "dur": 2.18}, "l11_4": {"text": "“要用一点点暖，才能点亮。”", "dur": 2.66}, "l12_0": {"text": "Sunshine捧起一颗星星果。", "dur": 2.47}, "l12_1": {"text": "第一次，呼——，火大了，星星果“嗖”地缩回了叶子里。", "dur": 5.28}, "l12_2": {"text": "第二次，呼～，还是大了一点点，星星果只闪了一下。", "dur": 5.24}, "l12_3": {"text": "Sunshine吸一口气，慢慢地吹。", "dur": 3.05}, "l12_4": {"text": "第三次，呼呼用了最小最小的火：", "dur": 3.42}, "l12_5": {"text": "“呼～”", "dur": 2.1}, "l12_6": {"text": "星星果亮了，暖暖的，像一小块月亮。", "dur": 4.0}, "l13_0": {"text": "一颗，又一颗，又一颗。", "dur": 4.35}, "l13_1": {"text": "整棵树都亮了！", "dur": 2.84}, "l13_2": {"text": "Sunshine、呼呼和棉棉在树下转圈圈、捉迷藏、数星星，", "dur": 6.08}, "l13_3": {"text": "笑声一直飘到了云上面。", "dur": 2.45}, "l14_0": {"text": "可是，天边慢慢变成了粉红色。", "dur": 3.43}, "l14_1": {"text": "棉棉说：“天亮了，星星树要睡觉了，我也要回云里去了。”", "dur": 5.72}, "l14_2": {"text": "“再玩一会儿！就一小会儿！”", "dur": 2.48}, "l14_3": {"text": "“呼————！”", "dur": 1.4}, "l14_4": {"text": "大火又冲上来了，Sunshine的眼泪啪嗒、啪嗒。", "dur": 4.66}, "l14_5": {"text": "可是火再大，也留不住晚上。", "dur": 2.89}, "l15_0": {"text": "“嗞——”，一朵小白云。", "dur": 1.96}, "l15_1": {"text": "Sunshine吸一口气，慢慢地吹。“呼～～～”", "dur": 5.27}, "l15_2": {"text": "然后，她摘下两颗星星果，一颗给棉棉，一颗给自己。", "dur": 5.62}, "l15_3": {"text": "棉棉说：“你想我的时候，就吹一吹它。你那颗亮了，我这颗也会亮。”", "dur": 7.33}, "l15_4": {"text": "Sunshine抱了抱棉棉：“那我们下次见。”", "dur": 3.31}, "l16_0": {"text": "回家的路上，太阳出来了。", "dur": 2.49}, "l16_1": {"text": "呼呼眯起眼睛：“那是全世界最大的火吗？”", "dur": 3.77}, "l16_2": {"text": "“嗯。”Sunshine说，“可是它照在脸上，是暖暖的。”", "dur": 4.55}, "l17_0": {"text": "夜里，Sunshine对着床头的星星果，轻轻吹了一口气。", "dur": 6.03}, "l17_1": {"text": "“呼～”", "dur": 2.1}, "l17_2": {"text": "星星果亮了。", "dur": 2.57}, "l17_3": {"text": "很远很远的云里，另一颗也亮了。", "dur": 3.46}, "l17_4": {"text": "呼呼打了一个小小的哈欠，喷出一粒小火花，", "dur": 4.68}, "l17_5": {"text": "像在说：晚安。", "dur": 1.96}}, "snd": {"p_big": {"text": "按住屏幕，帮呼呼喷一个大大的火！", "dur": 3.46}, "p_small": {"text": "现在轻轻地点，让火苗变得小小的，待在小圈圈里。", "dur": 5.47}, "p_run": {"text": "按住屏幕，用大火帮Sunshine冲到滑梯！", "dur": 4.33}, "p_paint": {"text": "再来一次大火，画一道大彩虹！", "dur": 3.03}, "p_inflate": {"text": "按住屏幕，把气球吹得鼓鼓的！", "dur": 3.21}, "p_cloud": {"text": "和呼呼一起，用小小的火，飞出云朵。", "dur": 3.95}, "p_fly": {"text": "大火飞得高，小火飞得低。去摘天上的小星星吧！", "dur": 5.56}, "p_fruit": {"text": "用最小最小的火，把星星果点亮。", "dur": 3.42}, "p_tree": {"text": "再点亮几颗吧！", "dur": 1.4}, "p_breath": {"text": "和Sunshine一起。按住，吸气。松开，慢慢吹。", "dur": 6.39}, "p_bed": {"text": "轻轻点一下，吹亮星星果。", "dur": 2.79}, "r_toobig": {"text": "哎呀，火大了一点点，再轻一点。", "dur": 3.51}, "r_good1": {"text": "真棒！", "dur": 0.67}, "r_good2": {"text": "就是这样！", "dur": 0.95}, "r_good3": {"text": "哇！", "dur": 0.52}, "r_in": {"text": "吸气。", "dur": 0.8}, "r_out": {"text": "慢慢吹。", "dur": 0.97}, "r_fly": {"text": "飞得真好！", "dur": 1.16}, "v_title": {"dur": 2.56}, "v_big": {"dur": 1.39}, "v_small": {"dur": 1.43}, "v_hide": {"dur": 3.29}, "v_night": {"dur": 1.72}, "fx_big": {"dur": 1.3}, "fx_soft": {"dur": 2.0}, "fx_whoosh": {"dur": 1.3}, "fx_sizzle": {"dur": 0.9}, "fx_chime": {"dur": 2.47}, "fx_chime2": {"dur": 2.74}, "fx_crash": {"dur": 1.3}, "fx_pop": {"dur": 0.5}, "fx_bump": {"dur": 0.4}, "music": {"dur": 87.27}}};
+const $ = id => document.getElementById(id);
+const stage = $('stage'), cv = $('cv'), ctx = cv.getContext('2d'), cap = $('cap');
+const W = 1920, H = 1080;
+
+// ---------------------------------------------------------------- assets
+const IM = {};
+function img(n){
+  if(!IM[n]){ const i = new Image(); i.src = 'img/' + n + (M.sprites[n] ? '.webp' : '.jpg'); IM[n] = i; }
+  return IM[n];
+}
+const ok = i => i.complete && i.naturalWidth > 0;
+function bg(n, z){
+  const i = img(n); if(!ok(i)) return;
+  z = z || 1;
+  ctx.drawImage(i, W/2 - W*z/2, H/2 - H*z/2, W*z, H*z);
+}
+function spr(n, o){
+  const m = M.sprites[n], i = img(n); if(!ok(i)) return;
+  o = o || {};
+  const x = o.x ?? m.x, y = o.y ?? m.y, s = o.s ?? 1, a = o.a ?? 1;
+  if(a <= 0.01 || s <= 0.01) return;
+  ctx.save(); ctx.globalAlpha = Math.min(1, a); ctx.translate(x, y);
+  if(o.rot) ctx.rotate(o.rot * Math.PI / 180);
+  if(o.clip != null){ ctx.beginPath(); ctx.rect(-m.ax*s, -m.ay*s, m.w*s*o.clip, m.h*s); ctx.clip(); }
+  ctx.drawImage(i, -m.ax*s, -m.ay*s, m.w*s, m.h*s);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- sound
+const voiceEl = new Audio(), musicEl = new Audio(), fxEls = [new Audio(), new Audio(), new Audio()];
+let fxI = 0, voiceDone = null, musicOn = true;
+musicEl.loop = true; musicEl.volume = 0.22;
+function unlock(){
+  for(const a of [voiceEl, ...fxEls]){
+    a.muted = true; a.src = 'snd/fx_pop.mp3';
+    const p = a.play(); if(p) p.then(() => { a.pause(); a.muted = false; }).catch(() => { a.muted = false; });
+  }
+  musicEl.src = 'snd/music.mp3'; const p = musicEl.play(); if(p) p.catch(() => {});
+}
+function fx(n, vol){
+  const a = fxEls[fxI++ % fxEls.length];
+  a.muted = false; a.volume = vol ?? 0.8; a.src = 'snd/' + n + '.mp3';
+  const p = a.play(); if(p) p.catch(() => {});
+}
+function stopVoice(){ voiceEl.pause(); if(voiceDone){ const d = voiceDone; voiceDone = null; d(); } }
+function voice(n){
+  stopVoice();
+  return new Promise(res => {
+    let fin = false;
+    const done = () => { if(fin) return; fin = true; if(voiceDone === done) voiceDone = null; res(); };
+    voiceDone = done;
+    voiceEl.onended = done; voiceEl.onerror = done;
+    voiceEl.muted = false; voiceEl.src = 'snd/' + n + '.mp3';
+    const p = voiceEl.play(); if(p) p.catch(() => {});
+    const d = ((M.lines[n] || M.snd[n] || {}).dur || 3) * 1000 + 1500;
+    wait(d).then(done);           // safety net if audio cannot play
+  });
+}
+const voiceBusy = () => !!voiceDone;
+
+// ---------------------------------------------------------------- timing / flow
+let waits = [], paused = false, token = 0, cur = -1, started = false;
+function wait(ms){ return new Promise(res => waits.push({ms, res})); }
+function wrap(t){
+  if(t.length <= 21) return t;
+  let best = -1; const mid = t.length / 2, P = '，。：！？—、';
+  for(let i = 0; i < t.length - 1; i++) if(P.includes(t[i]) && !(P + '”').includes(t[i + 1]) && (best < 0 || Math.abs(i + 1 - mid) < Math.abs(best - mid))) best = i + 1;
+  return best < 0 ? t : t.slice(0, best) + '\n' + t.slice(best);
+}
+function caption(t, hint){ cap.textContent = wrap(t || ''); cap.classList.toggle('hint', !!hint); }
+function say(key){ caption((M.lines[key] || M.snd[key]).text); return voice(key); }
+const cheers = ['r_good1', 'r_good2', 'r_good3'];
+
+const P = (shot, ...lines) => ({type: 'page', shot, lines});
+const Gm = (game, o) => Object.assign({type: 'game', game}, o);
+const STEPS = [
+  {type: 'title'},
+  P('s1', 'l0_0', 'l0_1', 'l0_2'),
+  P('s2a', 'l1_0', 'l1_1'),
+  Gm('big', {prompt: 'p_big'}),
+  P('s3a', 'l2_0'),
+  Gm('run', {pre: ['l2_1'], prompt: 'p_run'}),
+  Gm('paint', {pre: ['l2_2'], prompt: 'p_paint'}),
+  P('s4a', 'l3_0', 'l3_1'), P('s4b', 'l3_2', 'l3_3', 'l3_4'),
+  P('s5a', 'l4_0', 'l4_1'), P('s5b', 'l4_2'),
+  P('s6', 'l5_0', 'l5_1', 'l5_2', 'l5_3'),
+  P('s7a', 'l6_0', 'l6_1'),
+  Gm('inflate', {prompt: 'p_inflate', post: ['l6_3']}),
+  P('s8a', 'l7_0', 'l7_1', 'l7_2', 'l7_3'), P('s8b', 'l7_4', 'l7_5'),
+  P('s9a', 'l8_0', 'l8_1'), P('s9b', 'l8_2', 'l8_3', 'l8_4'),
+  Gm('cloud', {pre: ['l9_0'], prompt: 'p_cloud', post: ['l9_2']}),
+  P('s10b', 'l9_3', 'l9_4'),
+  Gm('fly', {prompt: 'p_fly'}),
+  P('s11', 'l10_2', 'l10_3'),
+  P('s12a', 'l11_0', 'l11_1', 'l11_2'), P('s12b', 'l11_3', 'l11_4'),
+  Gm('fruit', {pre: ['l12_0'], prompt: 'p_fruit', post: ['l12_6']}),
+  Gm('tree', {prompt: 'p_tree', post: ['l13_1']}),
+  P('s14', 'l13_2', 'l13_3'),
+  P('s15a', 'l14_0', 'l14_1'), P('s15b', 'l14_2', 'l14_3', 'l14_4', 'l14_5'),
+  Gm('breath', {pre: ['l15_0'], prompt: 'p_breath'}),
+  P('s16b', 'l15_2', 'l15_3', 'l15_4'),
+  P('s17', 'l16_0', 'l16_1', 'l16_2'),
+  Gm('bed', {pre: ['l17_0'], prompt: 'p_bed', post: ['l17_2']}),
+  P('s18b', 'l17_3'), P('s18c', 'l17_4', 'l17_5'),
+  {type: 'end'},
+];
+
+let page = null, game = null, stepT = 0;
+const fire = {f: 0, pressed: false, on: false};
+
+function preload(i){
+  const st = STEPS[i]; if(!st) return;
+  if(st.type === 'page') M.frames[st.shot].forEach(f => img(f.img));
+  if(st.type === 'game') (ASSETS[st.game] || []).forEach(img);
+}
+function showFrame(n){ if(page && page.cur !== n){ page.prev = page.cur; page.cur = n; page.fade = 0; } }
+
+function go(i){
+  i = Math.max(0, Math.min(STEPS.length - 1, i));
+  const tok = ++token; cur = i; stepT = 0;
+  waits.forEach(w => w.res()); waits = [];
+  stopVoice(); caption('');
+  game = null; fire.on = false; fire.f = 0;
+  const st = STEPS[i], alive = () => tok === token;
+  preload(i); preload(i + 1);
+  $('cover').hidden = st.type === 'page' || st.type === 'game';
+  if(st.type === 'title'){
+    page = {cur: 's_title_0', prev: null, fade: 1};
+    $('b-start').textContent = started ? '再讲一遍' : '开始讲故事'; $('how').hidden = false;
+  } else if(st.type === 'end'){
+    page = {cur: 's_end_0', prev: page && page.cur, fade: 0};
+    $('b-start').textContent = '再玩一次'; $('how').hidden = true;
+    voice('v_night');
+  } else if(st.type === 'page') runPage(st, alive);
+  else runGame(st, alive);
+}
+
+async function runPage(st, alive){
+  const fr = M.frames[st.shot];
+  page = {cur: fr[0].img, prev: page && page.cur, fade: 0};
+  await wait(350); if(!alive()) return;
+  for(let i = 0; i < st.lines.length; i++){
+    fr.filter(f => f.line === i && f !== fr[0]).forEach(f =>
+      wait(f.delay * 1000).then(() => { if(alive()) showFrame(f.img); }));
+    await say(st.lines[i]); if(!alive()) return;
+    await wait(420); if(!alive()) return;
+  }
+  await wait(650); if(alive()) go(cur + 1);
+}
+
+async function runGame(st, alive){
+  page = null;
+  game = GAMES[st.game](st);
+  for(const k of st.pre || []){ await say(k); if(!alive()) return; await wait(300); if(!alive()) return; }
+  caption(M.snd[st.prompt].text, true); voice(st.prompt);
+  game.start && game.start(); fire.on = true;
+  await game.done; if(!alive()) return;
+  fire.on = false;
+  await wait(500); if(!alive()) return;
+  for(const k of st.post || []){ await say(k); if(!alive()) return; await wait(400); if(!alive()) return; }
+  await wait(900); if(alive()) go(cur + 1);
+}
+
+// ---------------------------------------------------------------- the fire gauge
+function gauge(zone, prog){
+  const x = 96, y0 = 250, h = 560, w = 60, f = fire.f, t = performance.now() / 1000;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,249,240,.85)'; rr(x - w/2 - 8, y0 - 8, w + 16, h + 16, 38); ctx.fill();
+  ctx.fillStyle = '#3b3160'; rr(x - w/2, y0, w, h, 30); ctx.fill();
+  ctx.save(); rr(x - w/2, y0, w, h, 30); ctx.clip();
+  const g = ctx.createLinearGradient(0, y0 + h, 0, y0);
+  g.addColorStop(0, '#fff0b0'); g.addColorStop(.45, '#ffc94a'); g.addColorStop(1, '#ff7a3c');
+  ctx.fillStyle = g; ctx.fillRect(x - w/2, y0 + h * (1 - f), w, h * f);
+  ctx.restore();
+  if(zone){
+    const a = y0 + h * (1 - zone[1]), b = y0 + h * (1 - zone[0]);
+    ctx.lineWidth = 9; ctx.strokeStyle = `rgba(255,255,255,${.7 + .3 * Math.sin(t * 5)})`;
+    rr(x - w/2 - 16, a, w + 32, b - a, 22); ctx.stroke();
+    const inz = f >= zone[0] && f <= zone[1];
+    ctx.lineWidth = 5; ctx.strokeStyle = inz ? '#7be08f' : '#f7a3c0';
+    rr(x - w/2 - 16, a, w + 32, b - a, 22); ctx.stroke();
+  }
+  ctx.font = '700 40px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff9f0'; ctx.strokeStyle = 'rgba(27,39,87,.7)'; ctx.lineWidth = 8; ctx.lineJoin = 'round';
+  ctx.strokeText('大', x, y0 - 28); ctx.fillText('大', x, y0 - 28);
+  ctx.strokeText('小', x, y0 + h + 62); ctx.fillText('小', x, y0 + h + 62);
+  if(prog != null){
+    ctx.lineWidth = 16; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,249,240,.45)'; ctx.beginPath(); ctx.arc(x + 130, y0 + 40, 44, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#ffe27a'; ctx.beginPath();
+    ctx.arc(x + 130, y0 + 40, 44, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, prog)); ctx.stroke();
+    star(x + 130, y0 + 40, 20, '#ffe27a');
+  }
+  ctx.restore();
+}
+function rr(x, y, w, h, r){ r = Math.min(r, w/2, h/2); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+function star(x, y, R, col){
+  ctx.beginPath();
+  for(let i = 0; i < 10; i++){ const a = -Math.PI/2 + i * Math.PI/5, r = i % 2 ? R * .5 : R; ctx.lineTo(x + r * Math.cos(a), y + r * Math.sin(a)); }
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+const ease = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+const now = () => performance.now() / 1000;
+function deferred(){ let r; const p = new Promise(x => r = x); return [p, r]; }
+
+// a "keep the flame inside the zone" tracker shared by several games
+function zoneTimer(zone, need){
+  return {zone, need, acc: 0,
+    step(dt){ const inz = fire.f >= zone[0] && fire.f <= zone[1];
+      this.acc = inz ? this.acc + dt : Math.max(0, this.acc - dt * .5); return this.acc >= need; },
+    get p(){ return this.acc / need; }};
+}
+let lastNag = 0;
+function nag(k){ if(now() - lastNag > 6 && !voiceBusy()){ lastNag = now(); say(k || 'r_toobig'); cap.classList.add('hint'); } }
+
+// ---------------------------------------------------------------- games
+const ASSETS = {
+  big: ['bg_s2b', 'flameR'], run: ['bg_s3a', 'stand', 'runner'], paint: ['bg_s3b', 'rainbow'],
+  inflate: ['bg_s7b', 'bal_big', 'bal_small'], cloud: ['bg_s10a', 'flame10', 'sflame10'],
+  fly: ['bg_fly', 'peak', 'pines', 'cloudS', 'starC', 'bal_big5', 'bal_small5'],
+  fruit: ['bg_s13a', 'stardim', 'starlit', 'flameL'],
+  tree: ['bg_s14', 'g14', 'sh14', 'dr14', ...Array.from({length: 12}, (_, i) => 'lit' + i)],
+  breath: ['bg_s15b', 'firebehind', 'girl_teary', 'girl_cry', 'girl_blow', 'girl_calm', 'sheep15', 'drag16', 'sflame16', 'puff'],
+  bed: ['bg_s18a', 'bg_s18a_lit'],
+};
+const flick = () => 1 + .045 * Math.sin(now() * 11) + .03 * Math.sin(now() * 17 + 1);
+
+const GAMES = {
+  big(){
+    const [done, fin] = deferred(); let phase = 0, zt = zoneTimer([.72, 1], 1.0), roared = false;
+    return {done, update(dt){
+      if(phase > 1) return;
+      if(phase === 0 && fire.f > .72 && !roared){ roared = true; fx('fx_big'); }
+      if(zt.step(dt)){
+        if(phase === 0){ phase = 1; zt = zoneTimer([.1, .36], 2.0); say('p_small'); cap.classList.add('hint'); }
+        else { phase = 2; fx('fx_chime'); fin(); }
+      }
+    }, draw(){
+      bg('bg_s2b'); spr('flameR', {s: (.1 + .9 * fire.f) * flick(), a: fire.f * 6});
+      gauge(phase < 2 ? zt.zone : null, zt.p);
+    }};
+  },
+  fill(kind){
+    const [done, fin] = deferred(); let p = 0, roared = false, fint = 0, over = false;
+    return {done, update(dt){
+      if(over){ fint += dt; return; }
+      if(fire.f >= .6){ p += dt / 3.2; if(!roared){ roared = true; fx('fx_big'); } }
+      if(p >= 1){ p = 1; over = true; fx(kind === 'paint' ? 'fx_chime2' : 'fx_chime'); fin(); }
+    }, draw(){
+      if(kind === 'run'){
+        bg('bg_s3a');
+        if(p < .01 && fire.f < .6) spr('stand');
+        else spr('runner', {x: M.sprites.runner.x + 880 * ease(p), y: M.sprites.runner.y - Math.abs(Math.sin(now() * 9)) * 16 * (over ? 0 : 1)});
+      } else if(kind === 'paint'){
+        bg('bg_s3b'); spr('rainbow', {clip: ease(p)});
+      } else {
+        bg('bg_s7b');
+        spr(fire.pressed || over ? 'bal_big' : 'bal_small', {s: .42 + .58 * ease(p), y: 880 - ease(fint / 6) * 520 + 5 * Math.sin(now() * 2), rot: 2 * Math.sin(now() * 1.3)});
+      }
+      if(!over) gauge([.6, 1], p);
+    }};
+  },
+  run(){ return GAMES.fill('run'); }, paint(){ return GAMES.fill('paint'); }, inflate(){ return GAMES.fill('inflate'); },
+  cloud(){
+    const [done, fin] = deferred(); const zt = zoneTimer([.1, .36], 3.0); let over = false, hot = 0;
+    return {done, start(){ fire.f = .95; }, update(dt){
+      if(over) return;
+      hot = fire.f > .62 ? hot + dt : 0; if(hot > 1.2) nag();
+      if(zt.step(dt)){ over = true; fx('fx_chime'); fin(); }
+    }, draw(){
+      bg('bg_s10a');
+      if(over) spr('sflame10', {s: flick()}); else spr('flame10', {s: (.12 + .88 * fire.f) * flick(), a: fire.f * 8});
+      ctx.fillStyle = `rgba(255,255,255,${over ? 0 : .5 * (1 - zt.p) + .12 * Math.max(0, fire.f - .5)})`; ctx.fillRect(0, 0, W, H);
+      if(!over) gauge(zt.zone, zt.p);
+    }};
+  },
+  fly(){
+    const [done, fin] = deferred();
+    const KP = [[0,600],[900,600],[1800,350],[2700,600],[3300,590],[4300,590],[4800,520],[5500,350],[6300,600],[6800,590],[7500,590],[8300,520]];
+    const ideal = x => { for(let i = 1; i < KP.length; i++) if(x <= KP[i][0]){ const a = KP[i-1], b = KP[i]; return a[1] + (b[1] - a[1]) * ease((x - a[0]) / (b[0] - a[0])); } return 520; };
+    const peaks = [1800, 5500], woods = [[3200, 4400], [6700, 7600]], BX = 520, END = 8300;
+    const stars = []; for(let x = 760; x < END - 200; x += 230) stars.push({x, y: ideal(x) - 175, got: 0});
+    const cues = [[1800 - 800, 'v_big', '“呼呼，大火！”'], [3200 - 700, 'v_small', '“呼呼，小火。”'], [5500 - 800, 'v_big', '“呼呼，大火！”'], [6700 - 700, 'v_small', '“呼呼，小火。”']];
+    let sx = 0, y = 600, n = 0, bump = 0, over = false, going = false;
+    return {done, start(){ fire.f = .42; going = true; }, update(dt){
+      if(!going || over) return;
+      sx += 270 * dt; const wx = sx + BX;
+      let ty = 820 - fire.f * 520, floor = 900;
+      for(const px of peaks){ const d = Math.abs(wx - px); if(d < 470) floor = Math.min(floor, 460 + d * 540 / 470 - 8); }
+      for(const [a, b] of woods) if(wx > a - 120 && wx < b + 120) floor = Math.min(floor, 668);
+      y += (ty - y) * Math.min(1, dt * 3);
+      if(y > floor){ y = floor; if(now() - bump > .9){ bump = now(); fx('fx_bump', .6); } }
+      for(const s of stars) if(!s.got && Math.hypot(s.x - wx, s.y - (y - 175)) < 125){ s.got = now(); n++; fx('fx_pop', .7); }
+      while(cues.length && wx > cues[0][0]){ const c = cues.shift(); voice(c[1]); caption(c[2]); }
+      if(sx > END - BX){ over = true; say('r_fly'); fin(); }
+    }, draw(){
+      bg('bg_fly');
+      for(let i = 0; i < 6; i++){ const cx = ((i * 700 - sx * .35) % 4200 + 4200) % 4200 - 300; spr('cloudS', {x: cx, y: 170 + (i * 137) % 260, a: .8}); }
+      for(const px of peaks) if(Math.abs(px - sx - 960) < 1500) spr('peak', {x: px - sx, y: 1000});
+      for(const [a, b] of woods) for(let x = a; x <= b; x += 210) if(Math.abs(x - sx - 960) < 1300) spr('pines', {x: x - sx, y: 1012});
+      for(const s of stars){
+        const X = s.x - sx; if(X < -100 || X > W + 100) continue;
+        if(!s.got) spr('starC', {x: X, y: s.y + 6 * Math.sin(now() * 3 + s.x), s: .9});
+        else if(now() - s.got < .4) spr('starC', {x: X, y: s.y - (now() - s.got) * 200, s: .9 + (now() - s.got) * 2, a: 1 - (now() - s.got) / .4});
+      }
+      const sh = now() - bump < .3 ? 6 * Math.sin(now() * 60) : 0;
+      spr(fire.pressed ? 'bal_big5' : 'bal_small5', {x: BX + sh, y: y + 4 * Math.sin(now() * 2), rot: 3 * Math.sin(now() * 1.4)});
+      ctx.fillStyle = 'rgba(27,39,87,.6)'; rr(W - 330, 150, 250, 86, 43); ctx.fill();
+      star(W - 280, 193, 26, '#ffe27a');
+      ctx.fillStyle = '#fff9f0'; ctx.font = '700 48px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'left';
+      ctx.fillText('× ' + n, W - 240, 210);
+      if(!over) gauge(null, null);
+    }};
+  },
+  fruit(){
+    const [done, fin] = deferred(); const zt = zoneTimer([.08, .32], 2.2); let hide = 0, over = false, litT = 0, first = true;
+    const st = M.sprites.stardim;
+    return {done, update(dt){
+      if(over){ litT += dt; return; }
+      if(hide > 0){ hide -= dt; fire.f = 0; return; }
+      if(fire.f > .58){ hide = 1.9; zt.acc = 0; fx('fx_whoosh', .5); if(first){ first = false; lastNag = now(); say('v_hide'); cap.classList.add('hint'); } else nag(); return; }
+      if(zt.step(dt)){ over = true; fx('fx_chime'); fin(); }
+    }, draw(){
+      bg('bg_s13a');
+      const g = hide > 0 ? ease(Math.min(1, (1.9 - hide) / .3)) * ease(Math.min(1, hide / .4)) : 0;
+      spr('stardim', {s: 1 - .9 * g, y: st.y - g * 420, a: 1 - g});
+      spr('starlit', {a: over ? ease(litT / 1.2) : .6 * zt.p, s: 1 + .05 * Math.sin(now() * 2.4)});
+      if(!over) spr('flameL', {s: (.08 + .92 * fire.f) * flick(), a: fire.f * 10});
+      else spr('flameL', {s: .1 * flick()});
+      if(!over) gauge(zt.zone, zt.p);
+    }};
+  },
+  tree(){
+    const [done, fin] = deferred(); let zt = zoneTimer([.08, .32], 1.3), lit = 0, over = false; const at = [];
+    return {done, update(dt){
+      if(over) return;
+      if(fire.f > .58){ zt.acc = 0; nag(); }
+      if(zt.step(dt)){
+        for(let i = 0; i < 4; i++) at[lit + i] = now() + i * .12;
+        lit += 4; fx(lit >= 12 ? 'fx_chime2' : 'fx_chime'); fire.f = 0; zt = zoneTimer([.08, .32], 1.3);
+        if(lit >= 12){ over = true; fin(); }
+      }
+    }, draw(){
+      bg('bg_s14');
+      for(let i = 0; i < 12; i++) if(at[i] != null){ const u = now() - at[i]; if(u > 0) spr('lit' + i, {a: ease(u / .5), s: 1 + .3 * Math.max(0, Math.sin(Math.min(1, u / .6) * Math.PI)) + .05 * Math.sin(now() * 2.5 + i)}); }
+      const hop = over ? 1 : .25;
+      spr('g14', {y: M.sprites.g14.y - Math.abs(Math.sin(now() * 4)) * 22 * hop});
+      spr('sh14', {y: M.sprites.sh14.y - Math.abs(Math.sin(now() * 4 + 1.2)) * 26 * hop});
+      spr('dr14', {x: 960 + 330 * Math.cos(now() * 1.3), y: 660 + 50 * Math.sin(now() * 2.6)});
+      if(!over) gauge(zt.zone, zt.p);
+    }};
+  },
+  breath(){
+    const [done, fin] = deferred(); let heat = 3, shown = 3, h = 0, ex = 0, exFrom = 0, over = false, endT = 0, toldIn = 0, toldOut = 0; const puffs = [];
+    return {done, update(dt){
+      shown += (heat - shown) * Math.min(1, dt * 2);
+      if(over){ endT += dt; return; }
+      if(ex > 0){
+        ex -= dt;
+        if(ex <= 0){ heat--; h = 0; puffs.push(now()); fx('fx_pop', .5);
+          if(heat <= 0){ over = true; fx('fx_chime2'); caption(''); fin(); } else caption('再来一次：按住，吸气……', true); }
+        return;
+      }
+      if(fire.pressed){ if(h === 0 && toldIn++ < 2){ voice('r_in'); } if(h === 0) caption('吸气……', true); h = Math.min(3, h + dt); }
+      else if(h >= 1.6){ ex = 3.2; exFrom = h; fx('fx_soft', 1); if(toldOut++ < 2) voice('r_out'); caption('慢慢吹——', true); }
+      else if(h > 0){ h = Math.max(0, h - dt * 2); if(h === 0) caption('按住久一点，吸一大口气', true); }
+    }, draw(){
+      bg('bg_s15b');
+      const k = Math.max(0, shown / 3);
+      spr('firebehind', {s: (.3 + .7 * k) * (1 + .03 * Math.sin(now() * 9)), a: Math.min(1, k * 3) * .92});
+      spr(over ? 'girl_calm' : ex > 0 ? 'girl_blow' : heat >= 3 ? 'girl_cry' : 'girl_teary');
+      spr('sheep15', {y: M.sprites.sheep15.y + 3 * Math.sin(now() * 2)});
+      for(const t0 of puffs){ const u = now() - t0; if(u < 6) spr('puff', {x: 885 + 10 * Math.sin(u * 1.4), y: 640 - Math.min(u * 60, 330), s: .3 + .9 * ease(u / .6), a: 1 - ease((u - 4) / 2)}); }
+      if(over){ spr('drag16', {y: M.sprites.drag16.y + 6 * Math.sin(now() * 2.4), a: ease(endT)}); spr('sflame16', {y: M.sprites.sflame16.y + 6 * Math.sin(now() * 2.4), a: ease(endT), s: flick()}); return; }
+      // breathing ring
+      const cx = 1250, cy = 400, r = ex > 0 ? 50 + 150 * (exFrom / 3) * (ex / 3.2) : 50 + 150 * (h / 3);
+      ctx.save();
+      ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(255,249,240,.75)'; ctx.setLineDash([6, 22]); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = ex > 0 ? 'rgba(190,225,255,.8)' : 'rgba(255,226,122,.8)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill();
+      ctx.lineWidth = 8; ctx.strokeStyle = '#fff9f0'; ctx.stroke();
+      for(let i = 0; i < 3; i++) star(cx - 70 + i * 70, cy + 262, 22, i < 3 - heat ? '#ffe27a' : 'rgba(255,249,240,.45)');
+      ctx.restore();
+    }};
+  },
+  bed(){
+    const [done, fin] = deferred(); const zt = zoneTimer([.06, .3], .9); let over = false, t = 0;
+    return {done, update(dt){
+      if(over){ t += dt; return; }
+      if(fire.f > .55){ fire.f = 0; zt.acc = 0; nag(); }
+      if(zt.step(dt)){ over = true; fx('fx_chime'); fin(); }
+    }, draw(){
+      bg('bg_s18a');
+      const i = img('bg_s18a_lit'); if(ok(i)){ ctx.globalAlpha = over ? ease(t / 1.4) : .4 * zt.p; ctx.drawImage(i, 0, 0, W, H); ctx.globalAlpha = 1; }
+      if(!over) gauge(zt.zone, zt.p);
+    }};
+  },
+};
+
+// ---------------------------------------------------------------- loop
+let last = performance.now();
+function frame(t){
+  const dt = Math.min(.05, (t - last) / 1000); last = t;
+  if(!paused){
+    stepT += dt;
+    for(const w of waits){ w.ms -= dt * 1000; if(w.ms <= 0) w.res(); }
+    waits = waits.filter(w => w.ms > 0);
+    if(game){
+      if(fire.on) fire.f = Math.max(0, Math.min(1, fire.f + (fire.pressed ? .7 : -.55) * dt));
+      game.update(dt);
+    }
+    if(page && page.fade < 1) page.fade = Math.min(1, page.fade + dt / .6);
+  }
+  ctx.setTransform(cv.width / W, 0, 0, cv.width / W, 0, 0);
+  ctx.fillStyle = '#1b2757'; ctx.fillRect(0, 0, W, H);
+  if(game) game.draw();
+  else if(page){
+    const z = 1 + .045 * Math.min(1, stepT / 18);
+    if(page.prev && page.fade < 1) bg(page.prev, z);
+    ctx.globalAlpha = ease(page.fade); bg(page.cur, z); ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(frame);
+}
+
+function fit(){
+  const r = stage.getBoundingClientRect();
+  stage.style.setProperty('--u', (r.width / 100) + 'px');
+  const w = Math.round(Math.min(1920, r.width * Math.min(2, window.devicePixelRatio || 1)));
+  if(cv.width !== w){ cv.width = w; cv.height = Math.round(w * 9 / 16); }
+}
+addEventListener('resize', fit); fit();
+
+// ---------------------------------------------------------------- input
+const isUI = e => e.target.closest && e.target.closest('button');
+stage.addEventListener('pointerdown', e => { if(isUI(e)) return; fire.pressed = true; e.preventDefault(); });
+for(const ev of ['pointerup', 'pointercancel', 'pointerleave']) addEventListener(ev, () => { fire.pressed = false; });
+addEventListener('blur', () => { fire.pressed = false; });
+addEventListener('keydown', e => { if(e.code === 'Space' && !e.target.closest('button')){ fire.pressed = true; e.preventDefault(); } });
+addEventListener('keyup', e => { if(e.code === 'Space') fire.pressed = false; });
+stage.addEventListener('contextmenu', e => e.preventDefault());
+
+$('b-start').onclick = async () => {
+  if(!started){ unlock(); started = true; }
+  $('bar').hidden = false; $('cover').hidden = true;
+  if(STEPS[cur].type === 'end'){ go(1); return; }
+  const tok = token;
+  await voice('v_title'); if(tok !== token) return;
+  await wait(500); if(tok === token) go(1);
+};
+$('b-prev').onclick = () => go(cur - 1);
+$('b-next').onclick = () => go(cur + 1);
+$('b-pause').onclick = () => {
+  paused = !paused; $('b-pause').setAttribute('aria-pressed', paused); $('b-pause').textContent = paused ? '▶' : 'Ⅱ';
+  if(paused){ voiceEl.pause(); musicEl.pause(); }
+  else { if(voiceDone && voiceEl.currentTime > 0 && !voiceEl.ended){ const p = voiceEl.play(); if(p) p.catch(() => {}); } if(musicOn){ const p = musicEl.play(); if(p) p.catch(() => {}); } }
+};
+$('b-music').onclick = () => {
+  musicOn = !musicOn; $('b-music').setAttribute('aria-pressed', !musicOn);
+  if(musicOn){ const p = musicEl.play(); if(p) p.catch(() => {}); } else musicEl.pause();
+};
+document.addEventListener('visibilitychange', () => { if(document.hidden && !paused) $('b-pause').onclick(); });
+
+window.__book = {go, get cur(){ return cur; }, fire, STEPS, get game(){ return game; }};
+img('s_title_0'); go(0); requestAnimationFrame(frame);
+</script>
+</body></html>
