@@ -73,7 +73,32 @@ button:focus-visible{outline:calc(var(--u,10px) * .3) solid var(--pink-deep);out
 // Every shape is a piece of cut paper: slightly wobbly edge that is re-cut every few frames ("boil"),
 // a soft drop shadow, paper grain, optionally a torn white rim or a printed pattern.
 const W = 1920, H = 1080;
-let ctx = null, K = 1, BOIL = 0, SEED = 0;
+let ctx = null, K = 1, BOIL = 0, SEED = 0, LW = 1920;
+// Static scenery is painted once into off-screen canvases and then just blitted every frame.
+const CACHE = new Map();
+function offscreen(key, w, h, ox, oy, lw, draw){
+  let c = CACHE.get(key);
+  if(!c || c.K !== K){
+    c = document.createElement('canvas'); c.width = Math.ceil(w * K); c.height = Math.ceil(h * K); c.K = K; c.ox = ox; c.oy = oy;
+    const sc = ctx, sb = BOIL, sl = LW, ss = SEED;
+    ctx = c.getContext('2d'); ctx.setTransform(K, 0, 0, K, ox * K, oy * K); BOIL = 0; LW = lw;
+    try { draw(); } finally { ctx = sc; BOIL = sb; LW = sl; SEED = ss; }
+    CACHE.set(key, c);
+  }
+  return c;
+}
+// a scrolling background layer; draw() paints it in layer coordinates (as if the camera were at 0)
+function layer(key, depth, cam, sceneW, draw, dy){
+  const lw = Math.ceil(1920 + Math.max(0, sceneW - 1920) * depth) + 8, c = offscreen('L:' + key, lw, 1080, 0, 0, lw, draw);
+  const sx = Math.max(0, Math.min(c.width - 1, Math.round(cam * depth * K))), sw = Math.min(c.width - sx, Math.ceil(1920 * K));
+  ctx.drawImage(c, sx, 0, sw, c.height, 0, dy || 0, sw / K, 1080);
+}
+// a small pre-painted piece that can be stamped many times
+const stamp = (key, w, h, ox, oy, draw) => offscreen('S:' + key, w, h, ox, oy, 1920, draw);
+function put(c, x, y, s, rot, a){
+  ctx.save(); ctx.translate(x, y); if(rot) ctx.rotate(rot * Math.PI / 180); if(s && s !== 1) ctx.scale(s, s); if(a != null) ctx.globalAlpha *= a;
+  ctx.drawImage(c, -c.ox, -c.oy, c.width / K, c.height / K); ctx.restore();
+}
 const INK = '#3a2a33', RIM = '#fffaf0';
 
 function hash(a, b, c){
@@ -321,7 +346,7 @@ function drawHuhu(o){
     if(ey === 'open'){ dot(22, -47, 5.6); dot(24, -50, 1.9, '#fff'); }
     else if(ey === 'happy') ink(arc(22, -43, 7, 200, 340), 3.2);
     else ink(arc(22, -49, 7, 20, 160), 3.2);
-    const m = o.talk ? lip(true, o.k) : null, open = o.mouth === 'open' || (o.f || 0) > .02 || (m && m !== 'rest');
+    const open = o.mouth === 'open' || (o.f || 0) > .02;
     if(open) cut([[44, -24], [58, -33], [61, -20], [52, -13]], MOUTH, {sh: 0, jit: .8}); else ink(arc(46, -27, 9, 30, 120), 2.6, MOUTH);
     if((o.f || 0) > .02) at(59, -25, o.fdir || 0, 1, 1, () => { const L = 26 + 300 * o.f; flamePaper(L, 14 + L * .36); });
   });
@@ -359,16 +384,16 @@ function skyStrips(cols){
   const n = cols.length, h = H / n;
   for(let i = 0; i < n; i++){
     const y = i * h - 20, p = [[-40, y]];
-    for(let x = -40; x <= W + 40; x += 160) p.push([x, y + 14 * Math.sin(x * .004 + i * 2.1)]);
-    p.push([W + 40, H + 40], [-40, H + 40]);
+    for(let x = -40; x <= LW + 40; x += 160) p.push([x, y + 14 * Math.sin(x * .004 + i * 2.1)]);
+    p.push([LW + 40, H + 40], [-40, H + 40]);
     cut(p, cols[i], {sh: i ? .5 : 0, jit: 1.2, rim: i ? 3 : 0});
   }
 }
 // rolling ground. fn(worldX) -> y
 function hill(cam, depth, fn, col, o){
   const off = cam * depth, x0 = Math.floor((off - 80) / 120) * 120, p = [];
-  for(let x = x0; x <= off + W + 200; x += 120) p.push([x - off, fn(x)]);
-  p.push([W + 200, H + 60], [-200, H + 60]);
+  for(let x = x0; x <= off + LW + 200; x += 120) p.push([x - off, fn(x)]);
+  p.push([LW + 200, H + 60], [-200, H + 60]);
   cut(p, col, Object.assign({jit: 1.4, rim: 5, sh: .8}, o));
 }
 function cloudPaper(x, y, s, col, o){
@@ -445,11 +470,11 @@ function mailbox(x, y, t, open){
 function signArrow(x, y, txt){
   cut(RR(x - 10, y - 220, 20, 224, 4), '#b9814f');
   cut([[x - 110, y - 250], [x + 70, y - 250], [x + 124, y - 205], [x + 70, y - 160], [x - 110, y - 160]], '#f1cf9a', {pat: 'stripes'});
-  label(txt, x - 6, y - 203, 46, '#6b4226');
+  if(txt) label(txt, x - 6, y - 203, 46, '#6b4226');
 }
 function fence(cam, y, x0, x1){
-  for(let x = Math.max(x0, Math.floor((cam - 80) / 90) * 90); x < Math.min(x1, cam + W + 90); x += 90) cut([[x - cam - 16, y], [x - cam - 16, y - 96], [x - cam, y - 118], [x - cam + 16, y - 96], [x - cam + 16, y]], '#fffaf0', {sh: .5});
-  ink([[Math.max(x0 - cam, -40), y - 64], [Math.min(x1 - cam, W + 40), y - 64]], 9, '#fffaf0');
+  for(let x = Math.max(x0, Math.floor((cam - 80) / 90) * 90); x < Math.min(x1, cam + LW + 90); x += 90) cut([[x - cam - 16, y], [x - cam - 16, y - 96], [x - cam, y - 118], [x - cam + 16, y - 96], [x - cam + 16, y]], '#fffaf0', {sh: .5});
+  ink([[Math.max(x0 - cam, -40), y - 64], [Math.min(x1 - cam, LW + 40), y - 64]], 9, '#fffaf0');
 }
 function dandelion(x, y, n, blast){
   ink([[x, y], [x - 4, y - 130]], 5, '#6fa56a');
@@ -496,6 +521,17 @@ function starFruit(x, y, R, lit, t, i){
   });
 }
 const TREE_FRUITS = [[-190, -330], [0, -300], [190, -340], [-250, -480], [-110, -520], [40, -560], [170, -500], [280, -440], [-60, -660], [100, -690], [-190, -640], [230, -620]];
+function starTreeBody(x, y){
+  cut(S([[x - 46, y], [x - 30, y - 110], [x - 40, y - 240], [x, y - 270], [x + 40, y - 240], [x + 30, y - 110], [x + 46, y], [x, y + 10]], 4), '#6a4f63', {pat: 'stripes'});
+  for(const [dx, dy, r, c] of [[-230, -420, 150, '#2e6b78'], [230, -430, 150, '#2e6b78'], [0, -330, 190, '#2a6070'], [-120, -600, 160, '#337886'], [130, -610, 160, '#2e6b78'], [0, -500, 210, '#2e6b78'], [0, -700, 130, '#3a8794']])
+    cut(E(x + dx, y + dy, r, r * .82), c, {pat: c === '#337886' ? 'dots' : null, sh: .7});
+}
+function starTreeFruits(x, y, lit, t, hide){
+  TREE_FRUITS.forEach(([dx, dy], i) => {
+    const h = hide && hide[i] ? hide[i] : 0;
+    starFruit(x + dx, y + dy - h * 60, i < 3 ? 34 * (1 - .8 * h) : 24, typeof lit === 'function' ? lit(i) : lit, t, i);
+  });
+}
 function starTree(x, y, lit, t, hide){
   cut(S([[x - 46, y], [x - 30, y - 110], [x - 40, y - 240], [x, y - 270], [x + 40, y - 240], [x + 30, y - 110], [x + 46, y], [x, y + 10]], 4), '#6a4f63', {pat: 'stripes'});
   for(const [dx, dy, r, c] of [[-230, -420, 150, '#2e6b78'], [230, -430, 150, '#2e6b78'], [0, -330, 190, '#2a6070'], [-120, -600, 160, '#337886'], [130, -610, 160, '#2e6b78'], [0, -500, 210, '#2e6b78'], [0, -700, 130, '#3a8794']])
@@ -543,7 +579,7 @@ function drawSunshineHead(eyes, mouth){
 }
 
 // ---------------------------------------------------------------- game engine: walking, hotspots, talking, fire tasks
-const LINES = {"a_i1": {"w": "N", "t": "Sunshine的心口里，住着一只粉红色的小火龙，名字叫呼呼。", "d": 5.56}, "a_i2": {"w": "N", "t": "只要Sunshine心里有一件特别特别想的事，呼呼就会喷火。", "d": 5.44}, "t_walk": {"w": "T", "t": "点一点地面可以走路。再点一点亮晶晶的星星，看看会发生什么。", "d": 6.93}, "a_d1": {"w": "S", "t": "这是我家。我玩一会儿就回来！", "d": 2.76}, "a_blk1": {"w": "S", "t": "我要搭一座高高的积木塔！", "d": 2.01}, "t_tap": {"w": "T", "t": "点一点，把积木一块一块搭上去。", "d": 3.21}, "a_blk2": {"w": "N", "t": "只差最后一块，哗啦——倒了。", "d": 3.0}, "a_blk3": {"w": "N", "t": "大火一下子冲上来，烧得眼睛热热的，眼泪啪嗒、啪嗒，掉了下来。", "d": 6.77}, "a_blk4": {"w": "N", "t": "眼泪落在呼呼头上，嗞——，变成了一朵小白云。呼呼打了个嗝，火小了。", "d": 7.6}, "a_blk5": {"w": "S", "t": "好啦，我们再来。", "d": 1.54}, "t_blk": {"w": "T", "t": "这一次，轻轻地点，用小小的火，慢慢搭。", "d": 4.63}, "a_blk7": {"w": "S", "t": "搭好啦！", "d": 0.72}, "a_blk8": {"w": "S", "t": "我的塔真高！", "d": 1.15}, "a_e1": {"w": "S", "t": "我想画一道全世界最大的彩虹！", "d": 2.68}, "a_e2": {"w": "H", "t": "看我的！", "d": 0.7}, "t_big": {"w": "T", "t": "按住屏幕，来一个大大的火！", "d": 2.77}, "a_e3": {"w": "S", "t": "哇，画满了整个天空！", "d": 2.08}, "a_e4": {"w": "S", "t": "彩虹真好看。", "d": 1.28}, "a_s1": {"w": "S", "t": "我要第一个冲到滑梯！", "d": 1.74}, "t_dash": {"w": "T", "t": "按住屏幕，用大火冲过去！", "d": 2.67}, "a_s2": {"w": "S", "t": "呜呼——！", "d": 0.59}, "a_s3": {"w": "H", "t": "嘿嘿，大火真好用。", "d": 1.96}, "a_m1": {"w": "N", "t": "信箱里有一封信。信上说：山的那一边，有一棵星星树，一年只有一个晚上会结星星果。", "d": 9.48}, "a_m2": {"w": "N", "t": "就是今天晚上！", "d": 1.36}, "a_m3": {"w": "S", "t": "我想去看星星树！", "d": 1.54}, "a_m4": {"w": "H", "t": "可是山那么高，路那么远。", "d": 2.24}, "a_m5": {"w": "S", "t": "我们去草地那边想想办法。", "d": 2.17}, "a_m6": {"w": "S", "t": "信我已经看过啦。", "d": 1.4}, "a_g0": {"w": "S", "t": "那边是草地。先看看院子里还有什么好玩的吧。", "d": 4.64}, "a_g1": {"w": "S", "t": "出发！", "d": 0.62}, "b_i1": {"w": "N", "t": "草地上，躺着一只粉红色的热气球。", "d": 3.52}, "b_d1": {"w": "S", "t": "蒲公英！要轻轻地吹才好看。", "d": 3.16}, "t_small": {"w": "T", "t": "轻轻地点，让火苗小小的，待在小圈圈里。", "d": 4.52}, "b_d2": {"w": "S", "t": "飞吧，飞吧！", "d": 1.33}, "b_d3": {"w": "S", "t": "哈哈，一下子全飞走了！再来。", "d": 3.4}, "b_b1": {"w": "S", "t": "一只热气球！瘪瘪的，没有火。", "d": 3.55}, "b_b2": {"w": "S", "t": "呼呼，你来！", "d": 1.25}, "t_inflate": {"w": "T", "t": "按住屏幕，把气球吹得鼓鼓的！", "d": 3.21}, "b_b3": {"w": "N", "t": "气球鼓起来了，圆起来了，飞起来了！", "d": 3.48}, "c_1": {"w": "N", "t": "飞呀飞，一阵风吹来，气球歪了一下。", "d": 3.72}, "c_2": {"w": "N", "t": "Sunshine一着急，呼呼也着急。火太大了！气球嗖地蹿进了厚厚的云里。", "d": 7.74}, "c_3": {"w": "N", "t": "四周白茫茫的，什么也看不见。Sunshine的眼睛，又热热的了。", "d": 6.21}, "c_4": {"w": "S", "t": "慢慢吹，就像吹一碗很烫的汤。", "d": 2.83}, "t_cloud": {"w": "T", "t": "轻轻地点，用小小的火，飞出云朵。", "d": 3.88}, "c_5": {"w": "S", "t": "哇，满天都是星星！", "d": 1.89}, "t_fly": {"w": "T", "t": "大火飞得高，小火飞得低。去摘天上的小星星吧！", "d": 5.56}, "c_big": {"w": "S", "t": "呼呼，大火！", "d": 1.38}, "c_small": {"w": "S", "t": "呼呼，小火。", "d": 1.43}, "c_6": {"w": "N", "t": "大火，小火，大火，小火。Sunshine和呼呼越飞越好。", "d": 6.29}, "c_7": {"w": "S", "t": "星星树到了！", "d": 1.19}, "d_i1": {"w": "N", "t": "山顶上有一棵大大的星星树。树下坐着一只小云羊。", "d": 5.82}, "d_m1": {"w": "M", "t": "你们来啦！我叫棉棉，是一只小云羊。", "d": 4.33}, "d_s1": {"w": "S", "t": "你好棉棉！我是Sunshine，这是呼呼。", "d": 3.97}, "d_m2": {"w": "M", "t": "可是今年的星星果，一颗都不亮。", "d": 3.21}, "d_m3": {"w": "M", "t": "树下的小牌子上写着办法，你去看看吧。", "d": 3.89}, "d_m_idle": {"w": "M", "t": "试试点亮矮矮的那三颗星星果吧。", "d": 3.18}, "d_m_idle2": {"w": "M", "t": "星星树真亮呀。", "d": 1.62}, "d_sign": {"w": "N", "t": "小牌子上写着：要用一点点暖，才能点亮。", "d": 4.31}, "d_f1": {"w": "S", "t": "呼呼，用最小最小的火。", "d": 2.33}, "t_tiny": {"w": "T", "t": "用最小最小的火，把星星果点亮。", "d": 3.42}, "d_f_hide": {"w": "N", "t": "火大了，星星果嗖地缩回了叶子里。没关系，它一会儿就出来。", "d": 6.29}, "d_f2": {"w": "S", "t": "亮了！暖暖的，像一小块月亮。", "d": 3.49}, "d_m4": {"w": "M", "t": "整棵树都亮了！", "d": 1.51}, "d_m5": {"w": "M", "t": "我们来玩捉迷藏吧！", "d": 1.78}, "d_count": {"w": "M", "t": "闭上眼睛。一，二，三！", "d": 3.57}, "t_seek": {"w": "T", "t": "棉棉藏到哪儿去了？点一点草丛找找看。", "d": 4.35}, "d_no": {"w": "S", "t": "不在这儿。", "d": 0.77}, "d_found": {"w": "M", "t": "哈哈，被你找到啦！", "d": 2.04}, "d_again": {"w": "M", "t": "再来一次！", "d": 1.03}, "d_m6": {"w": "M", "t": "真好玩！", "d": 0.89}, "d_dawn1": {"w": "N", "t": "可是，天边慢慢变成了粉红色。", "d": 3.33}, "d_m7": {"w": "M", "t": "天亮了，星星树要睡觉了，我也要回云里去了。", "d": 4.62}, "d_s2": {"w": "S", "t": "再玩一会儿！就一小会儿！", "d": 2.38}, "d_dawn2": {"w": "N", "t": "大火又冲上来了，眼泪啪嗒、啪嗒。可是火再大，也留不住晚上。", "d": 7.1}, "p_breath": {"w": "T", "t": "和Sunshine一起。按住，吸气。松开，慢慢吹。", "d": 6.39}, "d_gift": {"w": "N", "t": "火小了。Sunshine摘下两颗星星果，一颗给棉棉，一颗给自己。", "d": 6.87}, "d_m8": {"w": "M", "t": "你想我的时候，就吹一吹它。你那颗亮了，我这颗也会亮。", "d": 6.23}, "d_s3": {"w": "S", "t": "那我们下次见。", "d": 1.27}, "d_m9": {"w": "M", "t": "下次见，Sunshine！", "d": 1.87}, "d_home": {"w": "N", "t": "棉棉回云里去了。该回家啦，去坐热气球吧。", "d": 4.72}, "d_b1": {"w": "S", "t": "回家啦。", "d": 0.78}, "e_0": {"w": "N", "t": "回家的路上，太阳出来了。", "d": 2.39}, "e_1": {"w": "H", "t": "那是全世界最大的火吗？", "d": 2.03}, "e_2": {"w": "S", "t": "嗯。可是它照在脸上，是暖暖的。", "d": 3.72}, "f_1": {"w": "N", "t": "夜里，Sunshine对着床头的星星果，想轻轻吹一口气。", "d": 6.1}, "t_bed": {"w": "T", "t": "轻轻点一下，吹亮星星果。", "d": 2.79}, "f_2": {"w": "N", "t": "星星果亮了。", "d": 1.43}, "f_3": {"w": "N", "t": "很远很远的云里，另一颗也亮了。", "d": 3.36}, "f_4": {"w": "N", "t": "呼呼打了一个小小的哈欠，喷出一粒小火花，像在说：晚安。", "d": 6.63}, "v_night": {"w": "N", "t": "晚安，Sunshine。", "d": 1.72}, "v_title": {"w": "T", "t": "Sunshine，和小火龙呼呼。", "d": 2.54}, "r_toobig": {"w": "T", "t": "哎呀，火大了一点点，再轻一点。", "d": 3.51}, "r_in": {"w": "T", "t": "吸气。", "d": 0.8}, "r_out": {"w": "T", "t": "慢慢吹。", "d": 0.97}, "h_tap1": {"w": "H", "t": "我在这儿呢！", "d": 0.94}, "h_tap2": {"w": "H", "t": "呼——", "d": 0.44}, "h_tap3": {"w": "H", "t": "我想吃草莓。", "d": 1.16}, "h_tap4": {"w": "H", "t": "嘻嘻，好痒。", "d": 1.37}};
+const LINES = {"a_i1": {"w": "N", "t": "Sunshine的心口里，住着一只粉红色的小火龙，名字叫呼呼。", "d": 5.56}, "a_i2": {"w": "N", "t": "只要Sunshine心里有一件特别特别想的事，呼呼就会喷火。", "d": 5.44}, "t_walk": {"w": "T", "t": "点一点地面可以走路。再点一点亮晶晶的星星，看看会发生什么。", "d": 6.93}, "a_d1": {"w": "S", "t": "这是我家。我玩一会儿就回来！", "d": 2.76}, "a_blk1": {"w": "S", "t": "我要搭一座高高的积木塔！", "d": 2.01}, "t_tap": {"w": "T", "t": "点一点，把积木一块一块搭上去。", "d": 3.21}, "a_blk2": {"w": "N", "t": "只差最后一块，哗啦——倒了。", "d": 3.0}, "a_blk3": {"w": "N", "t": "大火一下子冲上来，烧得眼睛热热的，眼泪啪嗒、啪嗒，掉了下来。", "d": 6.77}, "a_blk4": {"w": "N", "t": "眼泪落在呼呼头上，嗞——，变成了一朵小白云。呼呼打了个嗝，火小了。", "d": 7.6}, "a_blk5": {"w": "S", "t": "好啦，我们再来。", "d": 1.54}, "t_blk": {"w": "T", "t": "这一次，轻轻地点，用小小的火，慢慢搭。", "d": 4.63}, "a_blk7": {"w": "S", "t": "搭好啦！", "d": 0.72}, "a_blk8": {"w": "S", "t": "我的城堡真高！", "d": 1.38}, "a_e1": {"w": "S", "t": "我想画一道全世界最大的彩虹！", "d": 2.68}, "a_e2": {"w": "H", "t": "看我的！", "d": 0.7}, "t_big": {"w": "T", "t": "按住屏幕，来一个大大的火！", "d": 2.77}, "a_e3": {"w": "S", "t": "哇，画满了整个天空！", "d": 2.08}, "a_e4": {"w": "S", "t": "彩虹真好看。", "d": 1.28}, "a_s1": {"w": "S", "t": "我要第一个冲到滑梯！", "d": 1.74}, "t_dash": {"w": "T", "t": "按住屏幕，用大火冲过去！", "d": 2.67}, "a_s2": {"w": "S", "t": "呜呼——！", "d": 0.59}, "a_s3": {"w": "H", "t": "嘿嘿，大火真好用。", "d": 1.96}, "a_m1": {"w": "N", "t": "信箱里有一封信。信上说：山的那一边，有一棵星星树，一年只有一个晚上会结星星果。", "d": 9.48}, "a_m2": {"w": "N", "t": "就是今天晚上！", "d": 1.36}, "a_m3": {"w": "S", "t": "我想去看星星树！", "d": 1.54}, "a_m4": {"w": "H", "t": "可是山那么高，路那么远。", "d": 2.24}, "a_m5": {"w": "S", "t": "我们去草地那边想想办法。", "d": 2.17}, "a_m6": {"w": "S", "t": "信我已经看过啦。", "d": 1.4}, "a_g0": {"w": "S", "t": "那边是草地。先看看院子里还有什么好玩的吧。", "d": 4.64}, "a_g1": {"w": "S", "t": "出发！", "d": 0.62}, "b_i1": {"w": "N", "t": "草地上，躺着一只粉红色的热气球。", "d": 3.52}, "b_d1": {"w": "S", "t": "蒲公英！要轻轻地吹才好看。", "d": 3.16}, "t_small": {"w": "T", "t": "轻轻地点，让火苗小小的，待在小圈圈里。", "d": 4.52}, "b_d2": {"w": "S", "t": "飞吧，飞吧！", "d": 1.33}, "b_d3": {"w": "S", "t": "哈哈，一下子全飞走了！再来。", "d": 3.4}, "b_b1": {"w": "S", "t": "一只热气球！瘪瘪的，没有火。", "d": 3.55}, "b_b2": {"w": "S", "t": "呼呼，你来！", "d": 1.25}, "t_inflate": {"w": "T", "t": "按住屏幕，把气球吹得鼓鼓的！", "d": 3.21}, "b_b3": {"w": "N", "t": "气球鼓起来了，圆起来了，飞起来了！", "d": 3.48}, "c_1": {"w": "N", "t": "飞呀飞，一阵风吹来，气球歪了一下。", "d": 3.72}, "c_2": {"w": "N", "t": "Sunshine一着急，呼呼也着急。火一下子变得好大，气球嗖地蹿了上去！", "d": 7.08}, "c_3": {"w": "N", "t": "气球一头扎进了厚厚的云里。四周白茫茫的，什么也看不见。", "d": 6.3}, "c_scared": {"w": "S", "t": "好白呀，我什么都看不见。呼呼，我害怕。", "d": 4.36}, "c_huhu": {"w": "H", "t": "我也着急。你慢一点，我就慢一点。", "d": 3.56}, "c_4": {"w": "S", "t": "慢慢吹，就像吹一碗很烫的汤。", "d": 2.83}, "t_cloud": {"w": "T", "t": "轻轻地点，用小小的火，飞出云朵。", "d": 3.88}, "c_5": {"w": "S", "t": "哇，满天都是星星！", "d": 1.89}, "t_fly": {"w": "T", "t": "大火飞得高，小火飞得低。去摘天上的小星星吧！", "d": 5.56}, "c_big": {"w": "S", "t": "呼呼，大火！", "d": 1.38}, "c_small": {"w": "S", "t": "呼呼，小火。", "d": 1.43}, "c_6": {"w": "N", "t": "大火，小火，大火，小火。Sunshine和呼呼越飞越好。", "d": 6.29}, "c_7": {"w": "S", "t": "星星树到了！", "d": 1.19}, "d_i1": {"w": "N", "t": "山顶上有一棵大大的星星树。树下坐着一只小云羊。", "d": 5.82}, "d_m1": {"w": "M", "t": "你们来啦！我叫棉棉，是一只小云羊。", "d": 4.33}, "d_s1": {"w": "S", "t": "你好棉棉！我是Sunshine，这是呼呼。", "d": 3.97}, "d_m2": {"w": "M", "t": "可是今年的星星果，一颗都不亮。", "d": 3.21}, "d_m3": {"w": "M", "t": "树下的小牌子上写着办法，你去看看吧。", "d": 3.89}, "d_m_idle": {"w": "M", "t": "试试点亮矮矮的那三颗星星果吧。", "d": 3.18}, "d_m_idle2": {"w": "M", "t": "星星树真亮呀。", "d": 1.62}, "d_sign": {"w": "N", "t": "小牌子上写着：要用一点点暖，才能点亮。", "d": 4.31}, "d_f1": {"w": "S", "t": "呼呼，用最小最小的火。", "d": 2.33}, "t_tiny": {"w": "T", "t": "用最小最小的火，把星星果点亮。", "d": 3.42}, "d_f_hide": {"w": "N", "t": "火大了，星星果嗖地缩回了叶子里。没关系，它一会儿就出来。", "d": 6.29}, "d_f2": {"w": "S", "t": "亮了！暖暖的，像一小块月亮。", "d": 3.49}, "d_m4": {"w": "M", "t": "整棵树都亮了！", "d": 1.51}, "d_m5": {"w": "M", "t": "我们来玩捉迷藏吧！", "d": 1.78}, "d_count": {"w": "M", "t": "闭上眼睛。一，二，三！", "d": 3.57}, "t_seek": {"w": "T", "t": "棉棉藏到哪儿去了？点一点草丛找找看。", "d": 4.35}, "d_no": {"w": "S", "t": "不在这儿。", "d": 0.77}, "d_found": {"w": "M", "t": "哈哈，被你找到啦！", "d": 2.04}, "d_again": {"w": "M", "t": "再来一次！", "d": 1.03}, "d_m6": {"w": "M", "t": "真好玩！", "d": 0.89}, "d_dawn1": {"w": "N", "t": "可是，天边慢慢变成了粉红色。", "d": 3.33}, "d_m7": {"w": "M", "t": "天亮了，星星树要睡觉了，我也要回云里去了。", "d": 4.62}, "d_s2": {"w": "S", "t": "再玩一会儿！就一小会儿！", "d": 2.38}, "d_m7b": {"w": "M", "t": "可是天真的亮了呀。", "d": 1.78}, "d_s2b": {"w": "S", "t": "我不想说再见！", "d": 1.25}, "d_dawn2": {"w": "N", "t": "大火又冲上来了，眼泪啪嗒、啪嗒。可是火再大，也留不住晚上。", "d": 7.1}, "p_breath": {"w": "T", "t": "和Sunshine一起。按住，吸气。松开，慢慢吹。", "d": 6.39}, "d_gift": {"w": "N", "t": "火小了。Sunshine摘下两颗星星果，一颗给棉棉，一颗给自己。", "d": 6.87}, "d_m8": {"w": "M", "t": "你想我的时候，就吹一吹它。你那颗亮了，我这颗也会亮。", "d": 6.23}, "d_s3": {"w": "S", "t": "那我们下次见。", "d": 1.27}, "d_m9": {"w": "M", "t": "下次见，Sunshine！", "d": 1.87}, "d_home": {"w": "N", "t": "棉棉回云里去了。该回家啦，去坐热气球吧。", "d": 4.72}, "d_b1": {"w": "S", "t": "回家啦。", "d": 0.78}, "e_0": {"w": "N", "t": "回家的路上，太阳出来了。", "d": 2.39}, "e_1": {"w": "H", "t": "那是全世界最大的火吗？", "d": 2.03}, "e_2": {"w": "S", "t": "嗯。可是它照在脸上，是暖暖的。", "d": 3.72}, "f_1": {"w": "N", "t": "夜里，Sunshine对着床头的星星果，想轻轻吹一口气。", "d": 6.1}, "t_bed": {"w": "T", "t": "轻轻点一下，吹亮星星果。", "d": 2.79}, "f_2": {"w": "N", "t": "星星果亮了。", "d": 1.43}, "f_3": {"w": "N", "t": "很远很远的云里，另一颗也亮了。", "d": 3.36}, "f_4": {"w": "N", "t": "呼呼打了一个小小的哈欠，喷出一粒小火花，像在说：晚安。", "d": 6.63}, "v_night": {"w": "N", "t": "晚安，Sunshine。", "d": 1.72}, "v_title": {"w": "T", "t": "Sunshine，和小火龙呼呼。", "d": 2.54}, "r_toobig": {"w": "T", "t": "哎呀，火大了一点点，再轻一点。", "d": 3.51}, "r_in": {"w": "T", "t": "吸气。", "d": 0.8}, "r_out": {"w": "T", "t": "慢慢吹。", "d": 0.97}, "h_tap1": {"w": "H", "t": "我在这儿呢！", "d": 0.94}, "h_tap2": {"w": "H", "t": "呼——", "d": 0.44}, "h_tap3": {"w": "H", "t": "我想吃草莓。", "d": 1.16}, "h_tap4": {"w": "H", "t": "嘻嘻，好痒。", "d": 1.37}, "k_1": {"w": "S", "t": "我要搭一座高高的城堡！", "d": 1.91}, "t_tower": {"w": "T", "t": "积木晃到城堡正上方的时候，点一下，把它放下来。", "d": 5.14}, "k_miss1": {"w": "T", "t": "歪了一点，再来一次。", "d": 2.19}, "k_miss2": {"w": "T", "t": "没关系，再来一次。", "d": 2.09}, "k_fast": {"w": "N", "t": "越搭越高，积木也越晃越快！", "d": 2.83}, "k_fall": {"w": "N", "t": "只差最后几块了。城堡晃啊晃，哗啦——全倒了。", "d": 5.26}, "k_cry": {"w": "S", "t": "我搭了那么久！全倒了！", "d": 2.59}, "k_retry": {"w": "T", "t": "再来一次。从第一块开始，慢慢搭。", "d": 4.34}, "k_breath": {"w": "N", "t": "积木又晃得好快，Sunshine的心也怦怦跳。先停一停，深呼吸。", "d": 6.84}, "p_breath2": {"w": "T", "t": "按住屏幕，慢慢吸气。松开，慢慢呼气。做两次。", "d": 6.97}, "k_calm": {"w": "S", "t": "呼——我不着急了。", "d": 1.63}, "k_h": {"w": "H", "t": "你慢下来，我的火也小小的。", "d": 2.38}, "t_tower2": {"w": "T", "t": "现在积木晃得慢了。看准了，再放下来。", "d": 4.65}, "k_done": {"w": "S", "t": "城堡搭好啦！", "d": 1.16}};
 const $ = id => document.getElementById(id);
 const stage = $('stage'), cv = $('cv'), cap = $('cap');
 ctx = cv.getContext('2d');
@@ -566,7 +602,7 @@ function unlock(){
   for(const a of [voiceEl, ...fxEls]){ a.muted = true; a.src = 'snd/fx_pop.mp3'; const p = a.play(); if(p) p.then(() => { a.pause(); a.muted = false; }).catch(() => { a.muted = false; }); }
   musicEl.src = 'snd/music.mp3'; tryPlay(musicEl);
 }
-function fx(n, vol){ const a = fxEls[fxI++ % fxEls.length]; a.muted = false; a.volume = vol ?? .8; a.src = 'snd/' + n + '.mp3'; tryPlay(a); }
+function fx(n, vol, rate){ const a = fxEls[fxI++ % fxEls.length]; a.muted = false; a.volume = vol ?? .8; a.src = 'snd/' + n + '.mp3'; a.playbackRate = rate || 1; tryPlay(a); }
 function stopVoice(){ voiceEl.pause(); if(voiceDone){ const d = voiceDone; voiceDone = null; d(); } }
 function voice(id){
   stopVoice();
@@ -581,9 +617,12 @@ function voice(id){
 let waits = [];
 function wait(ms){ return new Promise(res => waits.push({ms, res})); }
 function wrapText(t, n){
-  const out = []; let s = '';
-  for(const ch of t){ s += ch; if(s.length >= n && !'，。！？：、”…—～'.includes(ch) || s.length >= n + 3){ out.push(s); s = ''; } }
-  if(s) (s.length <= 2 && out.length ? out[out.length - 1] += s : out.push(s));
+  const out = [], P = '，。！？：、”…—～'; let s = '';
+  for(let i = 0; i < t.length; i++){
+    s += t[i];
+    if(s.length >= n && !P.includes(t[i + 1] || '') && t.length - i - 1 > 2){ out.push(s); s = ''; }
+  }
+  if(s) out.push(s);
   return out;
 }
 function caption(t, hint){
@@ -613,8 +652,8 @@ const alive = tok => tok === G.token;
 function fireTask(o){
   return new Promise(res => { G.task = Object.assign({type: 'fire', acc: 0, pause: 0, res}, o); G.fire.on = true; G.fire.f = o.start ?? 0; });
 }
-function breathTask(n, onBreath){
-  return new Promise(res => { G.task = {type: 'breath', left: n, n, h: 0, ex: 0, exFrom: 0, onBreath, res, told: 0}; });
+function breathTask(n, onBreath, bar){
+  return new Promise(res => { G.task = {type: 'breath', left: n, n, h: 0, ex: 0, exFrom: 0, onBreath, res, told: 0, bar}; });
 }
 function tapTask(n, onTap){
   return new Promise(res => { G.task = {type: 'tap', left: n, onTap, res}; });
@@ -681,7 +720,7 @@ function drawCast(cam){
 function drawHuhuNow(cam, k){
   const Hh = G.hu;
   drawHuhu({x: Hh.x - cam, y: Hh.y, face: Hh.face, s: Hh.s || 1.05, f: Hh.f, fdir: Hh.fdir || 0, eye: Hh.eye, wing: Math.floor(G.t * 6) % 2,
-    talk: G.talking === 'H', k, rot: Hh.rot || 0});
+    rot: Hh.rot || 0});
 }
 function anchorOf(who, cam){
   const a = G.actors[who];
@@ -727,6 +766,13 @@ function drawTaskUI(){
     if(T.kind !== 'free') for(let i = 0; i < 5; i++) cut(STAR(x + 150, y0 + 30 + i * 62, 22), (T.p || 0) * 5 > i + .5 ? '#ffe27a' : '#ffffff', {a: (T.p || 0) * 5 > i + .5 ? 1 : .45, sh: .4});
     const pr = G.fire.pressed;
     at(W - 190, H - 250, 0, pr ? .92 : 1 + .04 * Math.sin(G.t * 5), null, () => { cut(E(0, 0, 118, 118, 34), '#fffaf0', {sh: 1.2}); cut(E(0, 0, 100, 100, 30), pr ? '#ff8a3c' : DPINK, {sh: 0, pat: 'dots'}); label('呼', 0, 4, 100, '#fffaf0'); });
+  } else if(T.type === 'breath' && T.bar){
+    // a long paper bar that fills while breathing in and empties while breathing out
+    const x = 510, y = 150, w = 900, h = 96, v = T.ex > 0 ? (T.exFrom / 3) * (T.ex / 3.2) : T.h / 3;
+    cut(RR(x - 18, y - 18, w + 36, h + 36, 50), '#fffaf0', {sh: 1.2}); cut(RR(x, y, w, h, 40), '#3b3160', {sh: 0});
+    if(v > .02) cut(RR(x + 8, y + 8, (w - 16) * clamp(v, 0, 1), h - 16, 32), T.ex > 0 ? '#bfe1f5' : '#ffe27a', {sh: 0, jit: 2, pat: 'dots'});
+    label(T.ex > 0 ? '呼——' : (T.h > 0 ? '吸——' : '按住'), x + w / 2, y + h / 2 + 4, 60, T.ex > 0 || T.h > 0 ? INK : '#fffaf0');
+    for(let i = 0; i < T.n; i++) cut(STAR(x + w + 80 + i * 72, y + h / 2, 26), i < T.n - T.left ? '#ffe27a' : '#ffffff', {a: i < T.n - T.left ? 1 : .5, sh: .4});
   } else if(T.type === 'breath'){
     const cx = (G.sun.x - G.cam) > 960 ? 470 : 1450, cy = 400, r = T.ex > 0 ? 50 + 150 * (T.exFrom / 3) * (T.ex / 3.2) : 50 + 150 * (T.h / 3);
     for(let i = 0; i < 20; i++){ const a = i / 20 * 6.283; dot(cx + 205 * Math.cos(a), cy + 205 * Math.sin(a), 6, '#fffaf0'); }
@@ -743,13 +789,13 @@ async function goScene(id, o){
   const tok = ++G.token; G.mode = 'script'; G.pending = null; G.sun.target = null; G.task = null; G.fire.on = false; stopVoice();
   waits.forEach(w => w.res()); waits = [];
   G.fadeTo = 1; await wait(G.started ? 550 : 10); if(!alive(tok)) return;
-  G.scene = SC[id]; G.bubble = null; G.talking = null; caption(''); G.parts = []; G.actors = {};
+  CACHE.clear(); G.scene = SC[id]; G.bubble = null; G.talking = null; caption(''); G.parts = []; G.actors = {};
   Object.assign(G.sun, {x: G.scene.start || 300, face: 1, pose: {}, hidden: false, ov: null, moving: false, target: null});
   Object.assign(G.hu, {f: 0, eye: 'open', ov: null, hidden: false, behind: false, rot: 0, fdir: 0, x: G.sun.x - 110, y: GY - 330});
   G.cam = clamp(G.sun.x - 860, 0, Math.max(0, (G.scene.w || W) - W));
   if(G.scene.init) G.scene.init(o || {});
   G.fadeTo = 0; await wait(500); if(!alive(tok)) return;
-  try { if(G.scene.enter) await G.scene.enter(tok); } catch(e){ if(e !== CANCEL) throw e; return; }
+  try { if(G.scene.enter) await G.scene.enter(o || {}); } catch(e){ if(e !== CANCEL) throw e; return; }
   if(alive(tok) && G.mode === 'script') G.mode = G.scene.walk === false ? 'script' : 'walk';
 }
 async function runHot(h){
@@ -808,8 +854,8 @@ function frame(t){
 }
 function fit(){
   const r = stage.getBoundingClientRect(); stage.style.setProperty('--u', (r.width / 100) + 'px');
-  const w = Math.round(Math.min(1920, r.width * Math.min(2, window.devicePixelRatio || 1)));
-  if(cv.width !== w){ cv.width = w; cv.height = Math.round(w * 9 / 16); makePapers(); lastFrame = -1; }
+  const w = Math.round(Math.min(1600, r.width * Math.min(2, window.devicePixelRatio || 1)));
+  if(cv.width !== w){ cv.width = w; cv.height = Math.round(w * 9 / 16); K = w / W; CACHE.clear(); makePapers(); lastFrame = -1; }
 }
 addEventListener('resize', fit);
 
@@ -848,10 +894,12 @@ for(const [id, d] of [['w-left', -1], ['w-right', 1]]){
 }
 
 // ---------------------------------------------------------------- the story: scenes, hotspots and scripts
+// Scenery is painted once per scene into cached layers; only the cast and the things that change are redrawn.
 const CANCEL = {cancel: true};
 async function step(p){ const tok = G.token, r = await p; if(tok !== G.token) throw CANCEL; return r; }
 async function tween(ms, fn){ const t0 = G.t; for(;;){ const u = Math.min(1, (G.t - t0) * 1000 / ms); fn(u); if(u >= 1) return; await step(wait(40)); } }
-async function hint(id){ caption(LINES[id].t, true); voice(id); }
+async function waitFor(fn){ while(!fn()) await step(wait(60)); }
+function hint(id){ caption(LINES[id].t, true); voice(id); }
 const huhuTo = (x, y, face, fdir) => { G.hu.ov = {x, y, face: face || 1}; G.hu.fdir = fdir || 0; };
 const huhuBack = () => { G.hu.ov = null; G.hu.fdir = 0; G.hu.f = 0; };
 async function tearPuff(){
@@ -861,87 +909,80 @@ async function tearPuff(){
   await step(wait(500));
 }
 function cheerStars(x, y){ for(let i = 0; i < 7; i++) part('star', x + (i - 3) * 46, y - 20 * (i % 2), {vy: -90 - 20 * (i % 3), vx: (i - 3) * 18, life: 1.6, s: .8}); }
-function foreground(cam, col, tcol){
-  seed(180); hill(cam, 1.25, x => 1022 + 12 * Math.sin(x * .02), col, {rim: 0, sh: 1.2});
-  for(let x = Math.floor(cam * 1.25 / 260) * 260; x < cam * 1.25 + W + 260; x += 260) tuft(x - cam * 1.25 + 60 * hash(x, 1, 3), 1030, tcol);
+function fgLayer(key, cam, w, col, tcol){
+  layer(key, 1.25, cam, w, () => { seed(180); hill(0, 1.25, x => 1022 + 12 * Math.sin(x * .02), col, {rim: 0, sh: 1.2});
+    for(let x = 0; x < LW + 260; x += 260) tuft(x + 60 * hash(x, 1, 3), 1030, tcol); });
 }
+const cloudS = () => stamp('cloud', 420, 220, 210, 120, () => { seed(40); cloudPaper(0, 0, 1); });
 
 // =============================================================== title
 SC.title = {w: W, fixedCam: true, walk: false,
   draw(cam, t){
-    seed(100); skyStrips(['#f9cfdc', '#fbdbe6', '#fde6ea', '#fdeee4']);
-    for(let i = 0; i < 9; i++) hangStar(140 + i * 210, 60 + (i * 97) % 170, 20 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', t, i);
-    cloudPaper(1500, 300, 1.2); cloudPaper(330, 240, .9);
-    hill(0, 0, x => 860 + 26 * Math.sin(x * .005), '#f6b9cf', {pat: 'dots'}); hill(0, 0, x => 950 + 16 * Math.sin(x * .008 + 2), '#ee93b4');
-    at(1180, 300, -2, 1, 1, () => { cut(RR(-470, -150, 940, 320, 30), '#fffdf8', {sh: 1.4}); ink(RR(-450, -130, 900, 280, 22), 6, PINK, {closed: true}); });
+    layer('t0', 0, 0, W, () => {
+      seed(100); skyStrips(['#f9cfdc', '#fbdbe6', '#fde6ea', '#fdeee4']);
+      for(let i = 0; i < 9; i++) hangStar(140 + i * 210, 60 + (i * 97) % 170, 20 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', 0, i);
+      cloudPaper(1500, 300, 1.2); cloudPaper(330, 240, .9);
+      hill(0, 0, x => 860 + 26 * Math.sin(x * .005), '#f6b9cf', {pat: 'dots'}); hill(0, 0, x => 950 + 16 * Math.sin(x * .008 + 2), '#ee93b4');
+      at(1180, 300, -2, 1, 1, () => { cut(RR(-470, -150, 940, 320, 30), '#fffdf8', {sh: 1.4}); ink(RR(-450, -130, 900, 280, 22), 6, PINK, {closed: true}); });
+    });
     label('Sunshine', 1180, 240, 130, DPINK); label('和小火龙呼呼', 1180, 380, 118, DPINK);
     drawSunshine({x: 500, y: 960, s: 1.9, eyes: 'happy', mouth: 'grin', armL: 20, armR: 140, t, sway: 3 * Math.sin(t * 2)});
     drawHuhu({x: 820, y: 560 + 14 * Math.sin(t * 2.4), s: 1.6, face: -1, eye: 'happy', wing: Math.floor(t * 6) % 2, f: .1 + .03 * Math.sin(t * 5)});
   }};
 
 // =============================================================== 1. the garden
+function castleSmall(x, y, s){ at(x, y, 0, s, s, () => { for(let i = 0; i < 5; i++) put(TB(i), (i % 2 ? 7 : -7), -48 - i * 96); put(TROOF(), 0, -480); }); }
 SC.garden = {w: 3700, start: 520,
-  init(){ G.flags.g = {rainbow: 0, blocks: 0, fallen: false, tower: false, wob: 0, letter: false}; },
+  init(o){
+    if(o.keep && G.flags.g){ G.flags.g.tower = true; G.flags.g.back = true; G.sun.x = 760; return; }
+    G.flags.g = {rainbow: 0, tower: false, letter: false};
+  },
   draw(cam, t){
-    const F = G.flags.g;
-    seed(100); skyStrips(['#a9d8ee', '#bfe3f2', '#d6eef2', '#eaf5ea']);
-    sunPaper(1560 - cam * .05, 190, 78, t);
-    for(let i = 0; i < 5; i++) cloudPaper(((300 + i * 640 - cam * .2 + t * 7) % 3000 + 3000) % 3000 - 400, 150 + (i * 83) % 170, 1 + (i % 3) * .2);
-    seed(120); rainbowPaper(1750 - cam * .3, 900, 660, F.rainbow);
-    hill(cam, .3, x => 650 + 40 * Math.sin(x * .004), '#c3e6b6', {pat: 'dots'});
-    hill(cam, .6, x => 748 + 30 * Math.sin(x * .006 + 1), '#a3d69c');
-    for(const x of [760, 1500, 2300, 3050, 3800]) tree(x - cam * .6, 790, .85);
-    seed(140); hill(cam, 1, x => GY - 12 + 7 * Math.sin(x * .01), '#80c079', {pat: 'stripes'});
-    fence(cam, GY + 2, 560, 3360);
-    house(300 - cam, GY + 4);
-    for(const [x, c] of [[640, '#f6a3bd'], [800, '#ffd56b'], [1300, '#c7a6ea'], [1900, '#f6a3bd'], [2020, '#fffaf0'], [2700, '#ffd56b'], [3200, '#f6a3bd']]) flower(x - cam, GY + 8, c);
+    const F = G.flags.g, w = this.w;
+    layer('g0', 0, 0, w, () => { seed(100); skyStrips(['#a9d8ee', '#bfe3f2', '#d6eef2', '#eaf5ea']); sunPaper(1560, 190, 78, 0);
+      for(let i = 0; i < 4; i++) cloudPaper(260 + i * 470, 150 + (i * 83) % 170, 1 + (i % 3) * .2); });
+    if(F.rainbow > 0 && F.rainbow < 1){ seed(120); rainbowPaper(1750 - cam * .3, 900, 660, F.rainbow); }
+    layer('g1' + (F.rainbow >= 1), .3, cam, w, () => { seed(120); if(F.rainbow >= 1) rainbowPaper(1750, 900, 660, 1); hill(0, .3, x => 650 + 40 * Math.sin(x * .004), '#c3e6b6', {pat: 'dots'}); });
+    layer('g2', .6, cam, w, () => { seed(130); hill(0, .6, x => 748 + 30 * Math.sin(x * .006 + 1), '#a3d69c'); for(const x of [760, 1500, 2300, 3050, 3800]) tree(x, 790, .85); });
+    layer('g3', 1, cam, w, () => { seed(140); hill(0, 1, x => GY - 12 + 7 * Math.sin(x * .01), '#80c079', {pat: 'stripes'});
+      fence(0, GY + 2, 560, 3360); house(300, GY + 4);
+      for(const [x, c] of [[640, '#f6a3bd'], [800, '#ffd56b'], [1300, '#c7a6ea'], [1900, '#f6a3bd'], [2020, '#fffaf0'], [2700, '#ffd56b'], [3200, '#f6a3bd']]) flower(x, GY + 8, c);
+      slide(2280, GY); signArrow(3540, GY, ''); });
+    label('草地', 3534 - cam, GY - 203, 46, '#6b4226');
     seed(150);
-    const bx = 1040 - cam;
-    if(F.fallen) [[-190, -40, 20], [-60, -40, -35], [70, -40, 65], [200, -40, 10], [20, -116, 28]].forEach(([dx, dy, r], i) => blockPaper(bx + dx, GY + dy, i, r));
-    else for(let i = 0; i < F.blocks; i++) blockPaper(bx + (i % 2 ? 9 : -9) + (F.wob ? 12 * Math.sin(t * 22 + i) * (i / 4) : 0), GY - 40 - i * 80, i, F.wob ? 5 * Math.sin(t * 22 + i) : 0);
-    if(F.tower) cut(STAR(bx, GY - 460, 40), '#ffe27a', {sh: .8});
-    seed(160); easel(1640 - cam, GY, F.rainbow); slide(2280 - cam, GY); mailbox(2990 - cam, GY, t, F.letter); signArrow(3540 - cam, GY, '草地');
+    if(F.tower) castleSmall(1040 - cam, GY, .62);
+    else [[-90, -40, 8], [30, -40, -6], [-30, -120, 3], [150, -40, 24]].forEach(([dx, dy, r], i) => blockPaper(1040 - cam + dx, GY + dy, i, r));
+    seed(160); easel(1640 - cam, GY, F.rainbow); mailbox(2990 - cam, GY, t, F.letter);
     drawCast(cam);
-    foreground(cam, '#5e9c6a', '#4c8a63');
+    fgLayer('g4', cam, w, '#5e9c6a', '#4c8a63');
   },
   hotspots(){
     const F = G.flags.g;
     return [
       {x: 300, y: GY - 110, quiet: true, act: () => step(say('a_d1'))},
-      {x: 1040, y: GY - 170, stand: 300, done: F.tower, act: garden.blocks},
+      {x: 1040, y: GY - 170, stand: 280, done: F.tower, act: garden.blocks},
       {x: 1640, y: GY - 210, stand: 230, done: F.rainbow >= 1, act: garden.easel},
       {x: 2300, y: GY - 240, sx: 2050, done: F.slid, act: garden.slide},
       {x: 2990, y: GY - 230, stand: 190, done: F.letter, act: garden.mail},
       {x: 3540, y: GY - 210, stand: 170, done: !F.letter, quiet: !F.letter, act: garden.gate},
     ];
   },
-  async enter(){ await step(say('a_i1')); await step(say('a_i2')); await step(say('t_walk')); caption(''); },
+  async enter(o){
+    if(o.keep){ G.sun.pose = {eyes: 'happy', mouth: 'grin'}; await step(say('a_blk8')); G.sun.pose = {}; return; }
+    await step(say('a_i1')); await step(say('a_i2')); await step(say('t_walk')); caption('');
+  },
 };
 const garden = {
   async blocks(){
-    const F = G.flags.g;
-    if(F.tower){ await step(say('a_blk8')); return; }
-    await step(say('a_blk1')); hint('t_tap');
-    F.fallen = false; F.blocks = 0;
-    await step(tapTask(4, () => { F.blocks++; fx('fx_pop'); }));
-    caption(''); F.wob = 1; G.sun.pose = {eyes: 'wide', mouth: 'o'}; await step(wait(900)); F.wob = 0; F.fallen = true; fx('fx_crash');
-    await step(say('a_blk2'));
-    G.sun.pose = {eyes: 'cry', mouth: 'wail', tears: true, armL: 150, armR: 150}; G.hu.f = 1; G.hu.fdir = -55; fx('fx_big');
-    await step(say('a_blk3'));
-    await tearPuff(); G.hu.f = .08; G.hu.fdir = 0;
-    await step(say('a_blk4'));
-    G.sun.pose = {eyes: 'happy', mouth: 'rest'}; await step(say('a_blk5'));
-    G.sun.pose = {}; F.fallen = false; F.blocks = 0; hint('t_blk');
-    await step(fireTask({kind: 'hold', zone: [.1, .36], need: 3.2, over: .62, onOver: () => nag(), tick: p => { F.blocks = Math.floor(p * 5.01); }}));
-    F.blocks = 5; F.tower = true; G.hu.f = 0; fx('fx_chime2'); cheerStars(1040, GY - 480);
-    G.sun.pose = {eyes: 'happy', mouth: 'grin', armL: 150, armR: 150}; await step(say('a_blk7'));
+    if(G.flags.g.tower){ await step(say('a_blk8')); return; }
+    await step(say('k_1')); goScene('tower');
   },
   async easel(){
     const F = G.flags.g;
     if(F.rainbow >= 1){ await step(say('a_e4')); return; }
     await step(say('a_e1')); await step(say('a_e2')); hint('t_big');
     huhuTo(G.sun.x + 130 * G.sun.face, GY - 420, G.sun.face, -50);
-    await step(fireTask({kind: 'fill', zone: [.6, 1], need: 3, tick: p => { F.rainbow = p; }}));
+    await step(fireTask({kind: 'fill', zone: [.6, 1], need: 3, tick: p => { F.rainbow = Math.min(.999, p); }}));
     F.rainbow = 1; huhuBack(); fx('fx_chime2'); cheerStars(G.sun.x, GY - 520);
     G.sun.pose = {eyes: 'happy', mouth: 'grin', armL: 150, armR: 150}; await step(say('a_e3'));
   },
@@ -974,21 +1015,19 @@ const garden = {
 SC.meadow = {w: 2900, start: 260,
   init(){ G.flags.m = {seeds: 14, dan: false, inflate: 0, lift: 0, board: false}; },
   draw(cam, t){
-    const F = G.flags.m;
-    seed(100); skyStrips(['#6a62ae', '#a685c4', '#e7a3bd', '#fbc9b4']);
-    for(let i = 0; i < 7; i++) hangStar(200 + i * 270 - cam * .05, 50 + (i * 71) % 150, 16 + (i % 3) * 5, '#fff1b8', t, i);
-    mountain(420 - cam * .25, 820, 420, 330, '#a892cc'); mountain(2000 - cam * .25, 830, 430, 310, '#a892cc');
-    mountain(1250 - cam * .25, 860, 520, 600, '#8d7cc0', true);
-    at(1250 - cam * .25, 262, 0, .22, .22, () => { cut(RR(-30, -120, 60, 130, 8), '#6a4f63'); for(const [dx, dy, r] of [[-120, -260, 130], [120, -260, 130], [0, -360, 160]]) cut(E(dx, dy, r, r * .85), '#2e6b78'); });
-    cut(STAR(1250 - cam * .25, 190, 16 + 4 * Math.sin(t * 3), 5, 4), '#ffe27a', {sh: .4});
-    hill(cam, .6, x => 752 + 26 * Math.sin(x * .005), '#6fa58f', {pat: 'dots'});
-    seed(140); hill(cam, 1, x => GY - 12 + 7 * Math.sin(x * .01), '#5a9a86', {pat: 'stripes'});
-    for(const [x, c] of [[420, '#fffaf0'], [1100, '#f6a3bd'], [1300, '#c7a6ea'], [2500, '#ffd56b']]) flower(x - cam, GY + 8, c);
+    const F = G.flags.m, w = this.w;
+    layer('m0', 0, 0, w, () => { seed(100); skyStrips(['#6a62ae', '#a685c4', '#e7a3bd', '#fbc9b4']); for(let i = 0; i < 7; i++) hangStar(200 + i * 270, 50 + (i * 71) % 150, 16 + (i % 3) * 5, '#fff1b8', 0, i); });
+    layer('m1', .25, cam, w, () => { seed(110); mountain(420, 820, 420, 330, '#a892cc'); mountain(2000, 830, 430, 310, '#a892cc'); mountain(1250, 860, 520, 600, '#8d7cc0', true);
+      at(1250, 262, 0, .22, .22, () => { cut(RR(-30, -120, 60, 130, 8), '#6a4f63'); for(const [dx, dy, r] of [[-120, -260, 130], [120, -260, 130], [0, -360, 160]]) cut(E(dx, dy, r, r * .85), '#2e6b78'); }); });
+    seed(115); cut(STAR(1250 - cam * .25, 190, 16 + 4 * Math.sin(t * 3), 5, 4), '#ffe27a', {sh: .4});
+    layer('m2', .6, cam, w, () => { seed(120); hill(0, .6, x => 752 + 26 * Math.sin(x * .005), '#6fa58f', {pat: 'dots'}); });
+    layer('m3', 1, cam, w, () => { seed(140); hill(0, 1, x => GY - 12 + 7 * Math.sin(x * .01), '#5a9a86', {pat: 'stripes'});
+      for(const [x, c] of [[420, '#fffaf0'], [1100, '#f6a3bd'], [1300, '#c7a6ea'], [2500, '#ffd56b']]) flower(x, GY + 8, c); });
     seed(150); dandelion(820 - cam, GY, F.seeds);
-    if(F.inflate <= 0) balloonFlat(2060 - cam, GY - 8);
+    if(F.inflate <= 0) put(stamp('flat', 1100, 260, 700, 190, () => { seed(155); balloonFlat(0, 0); }), 2060 - cam, GY - 8);
     else balloonPaper(1800 - cam, GY - 4 - F.lift, .42 + .58 * ease(F.inflate), {f: F.board ? .8 : G.fire.f, riders: F.board, rot: 2 * Math.sin(t * 1.3), mouth: 'grin'});
     drawCast(cam);
-    foreground(cam, '#3f7d78', '#2f625f');
+    fgLayer('m4', cam, w, '#3f7d78', '#2f625f');
   },
   hotspots(){
     const F = G.flags.m;
@@ -1023,9 +1062,35 @@ const meadow = {
 const FLY = {KP: [[0, 600], [900, 600], [1800, 350], [2700, 600], [3300, 590], [4300, 590], [4800, 520], [5500, 350], [6300, 600], [6800, 590], [7500, 590], [8300, 520]],
   peaks: [1800, 5500], woods: [[3200, 4400], [6700, 7600]], BX: 520, END: 8300};
 FLY.ideal = x => { const K_ = FLY.KP; for(let i = 1; i < K_.length; i++) if(x <= K_[i][0]){ const a = K_[i - 1], b = K_[i]; return a[1] + (b[1] - a[1]) * ease((x - a[0]) / (b[0] - a[0])); } return 520; };
+const DUSK = ['#6a62ae', '#a685c4', '#e7a3bd', '#fbc9b4'], NIGHT = ['#1b2757', '#27336b', '#34427f', '#4a559a'];
+// the close-up inside the cloud: Sunshine and Huhu in the basket, cloud paper closing in from every side
+function drawCloseup(X, t){
+  layer('fc', 0, 0, W, () => {
+    seed(100); skyStrips(NIGHT);
+    cut(S([[400, -60], [1520, -60], [1300, 150], [1120, 230], [800, 230], [620, 150]], 5), PINK, {rim: 5, pat: 'dots'});
+    cut(S([[760, -60], [1160, -60], [1090, 226], [830, 226]], 4), LPINK, {sh: .2});
+    cut([[790, 226], [1130, 226], [1100, 280], [820, 280]], DPINK);
+    ink([[830, 280], [640, 900]], 9, '#8a5a35'); ink([[1090, 280], [1290, 900]], 9, '#8a5a35');
+  });
+  seed(300); const k = Math.floor(t * 9), f = X.cf ?? 1;
+  at(960, 300, -90, 1, 1, () => { const L = 60 + 250 * f; flamePaper(L, 30 + L * .42); });
+  drawSunshine({x: 860, y: 1090, s: 2.2, t, eyes: X.eyes || 'teary', mouth: G.talking === 'S' ? (lip(true, k) || 'rest') : (X.mouth || 'sad'), tears: X.tears, armL: 150, armR: 150, heart: false, sway: 2 * Math.sin(t * 3)});
+  drawHuhu({x: 1260, y: 640 + 8 * Math.sin(t * 2.4), s: 2.1, face: -1, eye: X.heye || 'open', wing: Math.floor(t * 6) % 2, f: 0, mouth: f > .5 ? 'open' : 'closed'});
+  put(stamp('basketBig', 1100, 320, 550, 40, () => { seed(310); cut([[-470, 0], [470, 0], [430, 260], [-430, 260]], '#c9925e', {pat: 'grid'}); cut(RR(-500, -26, 1000, 52, 22), '#8a5a35'); }), 960, 900);
+  cut(E(700, 892, 30, 26, 12), SKIN, {sh: .4}); cut(E(1010, 892, 30, 26, 12), SKIN, {sh: .4});
+  G.actors.S = {x: 860, y: 400, screen: true}; G.actors.H = {x: 1260, y: 520, screen: true};
+  // clouds: streaming past while the balloon shoots up, then packed thick all around
+  const cl = stamp('cloudBig', 1000, 520, 500, 280, () => { seed(320); cloudPaper(0, 0, 2.3); });
+  if(X.rush > 0) for(let i = 0; i < 9; i++){ const y = ((hash(i, 5, 1) * 1500 + t * 1900) % 1500) - 250; put(cl, hash(i, 6, 1) * W, y, 1 + hash(i, 7, 1) * .6, 0, .95 * X.rush); }
+  if(X.cloud > .01){
+    const c = X.cloud;
+    for(let i = 0; i < 14; i++){ const a = i / 14 * 6.283, R = lerp(1300, 560 + 150 * hash(i, 8, 1), ease(c)); put(cl, 960 + R * Math.cos(a) * 1.25 + 20 * Math.sin(t * .7 + i), 560 + R * Math.sin(a) * .8, 1.2 + hash(i, 9, 1) * .5, 0, 1); }
+  }
+  if(X.white > .01){ ctx.fillStyle = `rgba(255,255,255,${X.white})`; ctx.fillRect(0, 0, W, H); }
+}
 SC.flight = {w: W, fixedCam: true, walk: false,
   init(){
-    const X = G.flags.f = {sx: 0, y: 600, n: 0, bump: -9, cloud: 0, tilt: 0, night: 0, free: false, stars: [], cues: [[1000, 'c_big'], [2500, 'c_small'], [4700, 'c_big'], [6000, 'c_small']], bf: .3};
+    const X = G.flags.f = {sx: 0, y: 600, n: 0, bump: -9, cloud: 0, tilt: 0, night: 0, free: false, stars: [], cues: [[1000, 'c_big'], [2500, 'c_small'], [4700, 'c_big'], [6000, 'c_small']], bf: .3, close: false, rush: 0, white: 0};
     for(let x = 760; x < FLY.END - 200; x += 230) X.stars.push({x, y: FLY.ideal(x) - 175, got: 0});
     G.sun.hidden = true; G.hu.hidden = true;
   },
@@ -1041,35 +1106,50 @@ SC.flight = {w: W, fixedCam: true, walk: false,
     if(X.sx > FLY.END - FLY.BX && G.task) endTask();
   },
   draw(cam, t){
-    const X = G.flags.f, n = X.night, dusk = ['#6a62ae', '#a685c4', '#e7a3bd', '#fbc9b4'], night = ['#1b2757', '#27336b', '#34427f', '#4a559a'];
-    seed(100); skyStrips(dusk.map((c, i) => mix(c, night[i], n)));
-    if(n > .5) for(let i = 0; i < 9; i++) hangStar(120 + i * 215, 40 + (i * 97) % 200, 16 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', t, i);
-    for(let i = 0; i < 5; i++) cloudPaper(((i * 700 - X.sx * .35 - t * 10) % 4200 + 4200) % 4200 - 300, 170 + (i * 137) % 260, 1.2, mix('#ffe1ea', '#dfe3f7', n), {a: .9});
-    mountain(300, 1000, 420, 300, mix('#a892cc', '#55549c', n)); mountain(1100, 1000, 460, 240, mix('#a892cc', '#55549c', n)); mountain(1750, 1000, 400, 280, mix('#a892cc', '#55549c', n));
-    seed(130);
-    for(const px of FLY.peaks) if(Math.abs(px - X.sx - 960) < 1500) mountain(px - X.sx, 1000, 470, 540, '#434a8e', true);
-    for(const [a, b] of FLY.woods) for(let x = a; x <= b; x += 150) if(Math.abs(x - X.sx - 960) < 1200) pine(x - X.sx, 1014, 1 + .12 * ((x / 150) % 2));
-    hill(X.sx, 1, x => 990 + 8 * Math.sin(x * .01), mix('#5a9a86', '#27456a', n), {rim: 0});
-    seed(160);
+    const X = G.flags.f;
+    if(X.close){ drawCloseup(X, t); return; }
+    const n = X.night, q = Math.round(n * 6), nn = q / 6, mc = mix('#a892cc', '#55549c', nn);
+    layer('f0' + q, 0, 0, W, () => { seed(100); skyStrips(DUSK.map((c, i) => mix(c, NIGHT[i], nn)));
+      if(nn > .5) for(let i = 0; i < 9; i++) hangStar(120 + i * 215, 40 + (i * 97) % 200, 16 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', 0, i);
+      mountain(300, 1000, 420, 300, mc); mountain(1100, 1000, 460, 240, mc); mountain(1750, 1000, 400, 280, mc); });
+    const cs = cloudS();
+    for(let i = 0; i < 5; i++) put(cs, ((i * 700 - X.sx * .35 - t * 10) % 4200 + 4200) % 4200 - 300, 170 + (i * 137) % 260, 1.2, 0, .85);
+    const pk = stamp('peak', 1040, 620, 520, 590, () => { seed(130); mountain(0, 0, 470, 540, '#434a8e', true); }),
+          pn = stamp('pine', 320, 380, 160, 350, () => { seed(135); pine(0, 0, 1); });
+    for(const px of FLY.peaks) if(Math.abs(px - X.sx - 960) < 1500) put(pk, px - X.sx, 1000);
+    for(const [a, b] of FLY.woods) for(let x = a; x <= b; x += 150) if(Math.abs(x - X.sx - 960) < 1200) put(pn, x - X.sx, 1014, 1 + .12 * ((x / 150) % 2));
+    const gr = stamp('fground' + q, 1960, 140, 20, 60, () => { seed(140); hill(0, 0, x => 10 + 8 * Math.sin(x * Math.PI / 240), mix('#5a9a86', '#27456a', nn), {rim: 0, jit: 0}); });
+    const gx = -(X.sx % 1920); put(gr, gx, 980); put(gr, gx + 1920, 980);
+    const st = stamp('fstar', 180, 180, 90, 90, () => { seed(160); starFruit(0, 0, 26, 1, 0, 0); });
     for(const s of X.stars){ const sx = s.x - X.sx; if(sx < -100 || sx > W + 100) continue;
-      if(!s.got) starFruit(sx, s.y + 6 * Math.sin(t * 3 + s.x), 26, 1, t, s.x);
-      else if(t - s.got < .4) cut(STAR(sx, s.y - (t - s.got) * 200, 26 + (t - s.got) * 60), '#ffe27a', {a: 1 - (t - s.got) / .4, sh: 0}); }
+      if(!s.got) put(st, sx, s.y + 6 * Math.sin(t * 3 + s.x));
+      else if(t - s.got < .4) put(st, sx, s.y - (t - s.got) * 200, 1 + (t - s.got) * 2, 0, 1 - (t - s.got) / .4); }
     const sh = t - X.bump < .3 ? 6 * Math.sin(t * 60) : 0;
     seed(170); balloonPaper(FLY.BX + sh, X.y + 4 * Math.sin(t * 2), .5, {f: X.bf, rot: X.tilt + 3 * Math.sin(t * 1.4), eyes: X.eyes || 'happy', mouth: X.mouth || 'rest'});
     G.actors.S = {x: FLY.BX - 10, y: X.y - 110, screen: true}; G.actors.H = {x: FLY.BX + 30, y: X.y - 90, screen: true};
-    if(X.cloud > .01){ seed(190); for(let i = 0; i < 16; i++){ const cx = hash(i, 1, 2) * W, cy = hash(i, 2, 2) * H; if(Math.hypot(cx - FLY.BX, cy - (X.y - 60)) < 190) continue; cloudPaper(cx + 30 * Math.sin(t * .4 + i), cy, 2.2 + hash(i, 3, 2), '#ffffff', {a: X.cloud * .96, sh: .3}); } }
+    if(X.wind > 0){ seed(185); for(let i = 0; i < 5; i++){ const wx = ((t * 1500 + i * 420) % 2400) - 300, wy = 300 + i * 110; ink(So([[wx, wy], [wx + 90, wy - 12], [wx + 180, wy + 6], [wx + 280, wy - 4]], 4), 7, '#ffffff', {a: .8 * X.wind}); } }
     if(X.free || X.n){ seed(195); cut(RR(W - 330, 150, 250, 86, 43), '#fffaf0', {sh: 1}); cut(STAR(W - 280, 193, 26), '#ffd95e', {sh: .4}); label('× ' + X.n, W - 200, 196, 50, INK, {font: '"Noto Sans SC",sans-serif', w: 700}); }
   },
   async enter(){
     const X = G.flags.f;
-    await step(wait(600)); say('c_1'); await tween(1800, u => { X.tilt = -14 * Math.sin(u * Math.PI); }); await step(wait(1400));
-    X.eyes = 'wide'; X.mouth = 'o'; await step(say('c_2')); fx('fx_big'); X.bf = 1;
-    await tween(1200, u => { X.y = lerp(600, 380, ease(u)); X.cloud = ease(u); X.night = ease(u); });
-    X.eyes = 'teary'; X.mouth = 'sad'; await step(say('c_3'));
-    part('puff', FLY.BX + 40, X.y - 150, {world: false, vy: -30, life: 3.5, s: 1.2}); fx('fx_sizzle'); await step(wait(600));
-    X.eyes = 'closed'; X.mouth = 'o'; await step(say('c_4')); hint('t_cloud');
-    await step(fireTask({kind: 'hold', zone: [.1, .36], need: 3, start: .95, noHu: true, over: .62, onOver: () => nag(), tick: (p, f) => { X.cloud = 1 - p; X.bf = f; }}));
-    X.cloud = 0; fx('fx_chime'); X.eyes = 'happy'; X.mouth = 'grin'; await step(say('c_5')); X.mouth = 'rest';
+    await step(wait(600)); say('c_1'); X.wind = 1; fx('fx_whoosh', .5);
+    await tween(1800, u => { X.tilt = -16 * Math.sin(u * Math.PI); }); await step(wait(1300));
+    X.eyes = 'wide'; X.mouth = 'o'; say('c_2'); await step(wait(1600)); fx('fx_big'); X.bf = 1;
+    await tween(1100, u => { X.y = lerp(600, -260, u * u); X.tilt = 6 * Math.sin(u * 20); });
+    // cut to the close-up: clouds rush past, then everything goes white
+    X.close = true; X.rush = 1; X.cf = 1; X.eyes = 'wide'; X.mouth = 'o'; X.wind = 0; fx('fx_whoosh', .9);
+    await step(wait(1700));
+    await tween(900, u => { X.white = u; X.cloud = u; }); X.rush = 0; X.night = 1;
+    await step(say('c_3')); await step(wait(500));
+    X.eyes = 'teary'; X.mouth = 'sad'; await tween(1200, u => { X.white = lerp(1, .5, u); });
+    await step(say('c_scared')); X.tears = true; X.eyes = 'cry'; X.mouth = 'wail'; await step(wait(900));
+    part('tear', 900, 640, {world: false, vx: 250, vy: -40, g: 60, life: .9}); await step(wait(900)); fx('fx_sizzle');
+    part('puff', 1230, 520, {world: false, vy: -40, life: 3.5, s: 1.6}); X.cf = .75; X.heye = 'squint';
+    await step(say('c_huhu')); X.heye = 'open';
+    X.tears = false; X.eyes = 'closed'; X.mouth = 'o'; await step(say('c_4')); hint('t_cloud');
+    await step(fireTask({kind: 'hold', zone: [.1, .36], need: 3.2, start: .95, noHu: true, over: .62, onOver: () => nag(), tick: (p, f) => { X.cloud = 1 - p; X.white = .5 * (1 - p); X.cf = f; }}));
+    X.cloud = 0; X.white = 0; X.cf = .2; fx('fx_chime'); X.eyes = 'happy'; X.mouth = 'grin'; await step(wait(900));
+    X.close = false; X.y = 600; X.tilt = 0; X.bf = .25; G.fadeTo = 0; await step(say('c_5')); X.mouth = 'rest';
     hint('t_fly'); X.free = true;
     await step(fireTask({kind: 'free', zone: [0, 1], need: 1e9, start: .42, noHu: true}));
     X.free = false; cheerStars(FLY.BX, X.y - 300); await step(say('c_6')); await step(say('c_7'));
@@ -1079,26 +1159,23 @@ SC.flight = {w: W, fixedCam: true, walk: false,
 
 // =============================================================== 4. the star tree
 const HT = {tree: 1750, sign: 1250, bushes: [950, 2650, 3020], balloon: 420};
+const DAWN = ['#5560a8', '#b493cf', '#ffbfd0', '#ffe3c2'];
+function bushAt(i, x, d){ seed(360 + i * 10); bush(x, GY + 6, 1.25, mix('#1f4a5c', '#3f8078', d), {pat: i === 1 ? 'dots' : null}); }
 SC.hilltop = {w: 3300, start: 640,
   init(){ G.flags.h = {lit: [0, 0, 0], hide: [0, 0, 0], all: 0, sheepX: 2250, hid: null, dawn: 0, gift: false, up: 0, gone: false, met: false, round: 0, seek: false, leave: false, first: true, hop: 0}; },
   draw(cam, t){
-    const F = G.flags.h, d = F.dawn, night = ['#1b2757', '#27336b', '#34427f', '#4a559a'], dawn = ['#5560a8', '#b493cf', '#ffbfd0', '#ffe3c2'];
-    seed(100); skyStrips(night.map((c, i) => mix(c, dawn[i], d)));
-    if(d < .9) for(let i = 0; i < 12; i++) hangStar(100 + i * 190 - cam * .08, 30 + (i * 97) % 210, 15 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', t, i);
-    cut(E(1560 - cam * .08, 210, 60, 60, 24), '#fff6d6', {a: 1 - d * .7}); cut(E(1586 - cam * .08, 194, 52, 52, 22), mix('#1b2757', '#5560a8', d), {sh: 0});
-    mountain(300 - cam * .3, 900, 460, 300, mix('#4a4f96', '#a58fca', d)); mountain(2100 - cam * .3, 900, 500, 340, mix('#4a4f96', '#a58fca', d), true);
-    hill(cam, .6, x => 820 - 90 * Math.exp(-Math.pow((x - 1400) / 900, 2)), mix('#2b5f6e', '#5f9a94', d), {pat: 'dots'});
-    seed(140); hill(cam, 1, x => GY - 12 + 7 * Math.sin(x * .01), mix('#27566a', '#4f8f8c', d), {pat: 'stripes'});
-    seed(150); balloonPaper(HT.balloon - cam, GY - 2, .5, {riders: false, f: 0});
-    signBoard(HT.sign - cam, GY);
-    seed(200); starTree(HT.tree - cam, GY, i => i < 3 ? F.lit[i] : (F.all ? ease((t - F.all - (i - 3) * .12) / .6) : 0), t, F.hide);
-    // bushes, with the sheep peeking from behind one of them
-    HT.bushes.forEach((bx, i) => {
-      seed(300 + i * 10);
-      if(F.hid === i) drawSheep({x: bx - cam - 20, y: GY - 96 - 8 * Math.abs(Math.sin(t * 2)), face: 1, s: 1.05, eyes: 'happy'});
-      seed(360 + i * 10); bush(bx - cam, GY + 6, 1.25, mix('#1f4a5c', '#3f8078', d), {pat: i === 1 ? 'dots' : null});
-    });
-    if(F.hid == null && !F.gone){
+    const F = G.flags.h, q = Math.round(F.dawn * 10), d = q / 10, w = this.w;
+    layer('h0' + q, .08, cam, w, () => { seed(100); skyStrips(NIGHT.map((c, i) => mix(c, DAWN[i], d)));
+      if(d < .9) for(let i = 0; i < 12; i++) hangStar(100 + i * 190, 30 + (i * 97) % 210, 15 + (i % 3) * 6, i % 2 ? '#fff1b8' : '#ffffff', 0, i);
+      cut(E(1560, 210, 60, 60, 24), '#fff6d6', {a: 1 - d * .7}); cut(E(1586, 194, 52, 52, 22), mix('#1b2757', '#5560a8', d), {sh: 0}); });
+    layer('h1' + q, .3, cam, w, () => { seed(110); mountain(300, 900, 460, 300, mix('#4a4f96', '#a58fca', d)); mountain(2100, 900, 500, 340, mix('#4a4f96', '#a58fca', d), true); });
+    layer('h2' + q, .6, cam, w, () => { seed(120); hill(0, .6, x => 820 - 90 * Math.exp(-Math.pow((x - 1400) / 900, 2)), mix('#2b5f6e', '#5f9a94', d), {pat: 'dots'}); });
+    layer('h3' + q, 1, cam, w, () => { seed(140); hill(0, 1, x => GY - 12 + 7 * Math.sin(x * .01), mix('#27566a', '#4f8f8c', d), {pat: 'stripes'});
+      seed(150); balloonPaper(HT.balloon, GY - 2, .5, {riders: false, f: 0}); signBoard(HT.sign, GY);
+      seed(200); starTreeBody(HT.tree, GY); HT.bushes.forEach((bx, i) => bushAt(i, bx, d)); });
+    seed(220); starTreeFruits(HT.tree - cam, GY, i => i < 3 ? F.lit[i] : (F.all ? ease((t - F.all - (i - 3) * .12) / .6) : 0), t, F.hide);
+    if(F.hid != null){ const bx = HT.bushes[F.hid]; seed(300); drawSheep({x: bx - cam - 20, y: GY - 96 - 8 * Math.abs(Math.sin(t * 2)), face: 1, s: 1.05, eyes: 'happy'}); bushAt(F.hid, bx - cam, d); }
+    else if(!F.gone){
       const face = G.sun.x < F.sheepX ? -1 : 1, up = ease(F.up) * 900;
       if(F.up > 0){ seed(390); cloudPaper(F.sheepX - cam, GY - 10 - up, 1.5, '#ffffff'); }
       drawSheep({x: F.sheepX - cam, y: GY - up - (F.up > 0 ? 40 : 0), face, s: 1.1, eyes: F.sheepEyes || 'open', talk: G.talking === 'M', k: Math.floor(t * 9), hop: F.hop ? Math.abs(Math.sin(t * 9)) * 26 : 0});
@@ -1107,7 +1184,7 @@ SC.hilltop = {w: 3300, start: 640,
     }
     drawCast(cam);
     if(F.gift){ seed(420); starFruit(G.sun.x - cam + 62 * G.sun.face, GY - 150, 22, 1, t, 9); }
-    foreground(cam, mix('#1d4656', '#3a7474', d), mix('#173a48', '#2f625f', d));
+    fgLayer('h4' + q, cam, w, mix('#1d4656', '#3a7474', d), mix('#173a48', '#2f625f', d));
   },
   hotspots(){
     const F = G.flags.h, hs = [];
@@ -1164,8 +1241,9 @@ const hilltop = {
     say('d_dawn1'); await tween(5200, u => { F.dawn = ease(u); });
     await step(say('d_m7'));
     G.sun.pose = {eyes: 'teary', mouth: 'a', armL: 110, armR: 110}; await step(say('d_s2'));
+    await step(say('d_m7b'));
     G.sun.pose = {eyes: 'cry', mouth: 'wail', tears: true, armL: 150, armR: 150}; G.hu.f = 1; G.hu.fdir = -60; fx('fx_big');
-    await step(say('d_dawn2')); await tearPuff();
+    await step(say('d_s2b')); await step(say('d_dawn2')); await tearPuff();
     G.sun.pose = {eyes: 'closed', mouth: 'o'}; await step(say('p_breath'));
     await step(breathTask(3, left => { G.hu.f = .08 + .9 * left / 3; part('puff', G.hu.x, G.hu.y - 110, {vy: -42, life: 3, wob: 10}); G.sun.pose = left ? {eyes: 'closed', mouth: 'o'} : {eyes: 'happy', mouth: 'rest'}; }));
     G.hu.f = .06; G.hu.fdir = 0; fx('fx_chime2'); await step(wait(700));
@@ -1184,11 +1262,10 @@ SC.home = {w: W, fixedCam: true, walk: false,
   init(){ G.sun.hidden = true; G.hu.hidden = true; G.flags.e = {t0: G.t}; },
   draw(cam, t){
     const u = t - G.flags.e.t0, bx = 420 + 22 * u, by = 700 - 6 * u + 6 * Math.sin(t * 1.6);
-    seed(100); skyStrips(['#f6b4cb', '#fbc0b0', '#ffd9a8', '#fff0c8']);
-    sunPaper(1360, 780, 170, t, '#ffcf4a');
-    cloudPaper(400, 280, 1.5, '#fff1f4'); cloudPaper(1640, 230, 1.1, '#fff1f4');
-    mountain(260, 990, 430, 280, '#c9a2cf'); mountain(900, 990, 400, 220, '#c9a2cf'); mountain(1760, 990, 400, 250, '#c9a2cf');
-    hill(0, 0, x => 900 + 14 * Math.sin(x * .006), '#8fbf9a', {pat: 'dots'}); hill(0, 0, x => 980 + 10 * Math.sin(x * .01), '#6da98a');
+    layer('e0', 0, 0, W, () => { seed(100); skyStrips(['#f6b4cb', '#fbc0b0', '#ffd9a8', '#fff0c8']); sunPaper(1360, 780, 170, 0, '#ffcf4a');
+      cloudPaper(400, 280, 1.5, '#fff1f4'); cloudPaper(1640, 230, 1.1, '#fff1f4');
+      mountain(260, 990, 430, 280, '#c9a2cf'); mountain(900, 990, 400, 220, '#c9a2cf'); mountain(1760, 990, 400, 250, '#c9a2cf');
+      hill(0, 0, x => 900 + 14 * Math.sin(x * .006), '#8fbf9a', {pat: 'dots'}); hill(0, 0, x => 980 + 10 * Math.sin(x * .01), '#6da98a'); });
     seed(170); balloonPaper(bx, by, .8, {f: .2, rot: 2 * Math.sin(t * 1.3), eyes: 'happy', mouth: G.talking === 'S' ? lip(true, Math.floor(t * 9)) || 'rest' : 'rest'});
     G.actors.S = {x: bx - 20, y: by - 170, screen: true}; G.actors.H = {x: bx + 50, y: by - 140, screen: true};
   },
@@ -1199,12 +1276,12 @@ SC.home = {w: W, fixedCam: true, walk: false,
 SC.bed = {w: W, fixedCam: true, walk: false,
   init(){ G.sun.hidden = true; G.hu.hidden = true; G.flags.b = {lit: 0, sleep: false, inset: 0}; },
   draw(cam, t){
-    const F = G.flags.b;
-    seed(100); bedroom(F.lit, t, F.sleep, G.talking === 'S', Math.floor(t * 9));
+    const F = G.flags.b, q = Math.round(F.lit * 8);
+    layer('b' + q + F.sleep, 0, 0, W, () => { seed(100); bedroom(q / 8, 0, F.sleep, false, 0); });
     seed(500); drawHuhu({x: 960, y: 632, s: .85, face: -1, eye: F.sleep ? 'squint' : 'open', wing: 0, f: G.task ? G.fire.f * .5 : 0});
-    if(F.inset > 0){ seed(600); at(1465, 310, 0, ease(F.inset), null, () => {
+    if(F.inset > 0) put(stamp('inset', 560, 560, 280, 280, () => { seed(600);
       cut(E(0, 0, 250, 250, 40), '#fffaf0', {sh: 1.4}); cut(E(0, 0, 228, 228, 40), '#27336b', {sh: 0});
-      cloudPaper(0, 90, 1.7, '#eef0fb'); drawSheep({x: -50, y: 80, s: .95, eyes: 'closed'}); starFruit(120, 10, 30, 1, t, 2); }); }
+      cloudPaper(0, 90, 1.7, '#eef0fb'); drawSheep({x: -50, y: 80, s: .95, eyes: 'closed'}); starFruit(120, 10, 30, 1, 0, 2); }), 1465, 310, ease(F.inset));
   },
   async enter(){
     const F = G.flags.b;
@@ -1217,7 +1294,122 @@ SC.bed = {w: W, fixedCam: true, walk: false,
     G.mode = 'end'; caption(''); $('cover').hidden = false; $('b-start').textContent = '再玩一次'; $('how').textContent = '晚安，Sunshine'; voice('v_night');
   },
 };
-const ORDER = ['garden', 'meadow', 'flight', 'hilltop', 'home', 'bed'];
+const ORDER = ['garden', 'tower', 'meadow', 'flight', 'hilltop', 'home', 'bed'];
+
+// ---------------------------------------------------------------- the castle-stacking game
+// A block swings on a rope; tap to drop it on the tower. The higher it gets, the faster it swings.
+// First try: it always tumbles near the top. Second try: two deep breaths slow everything down, and it stands.
+const TWR = {BW: 170, BH: 100, cx: 1020, base: GY + 10, A: 400, N: 8};
+function TB(i){
+  return stamp('tb' + (i % 6), 230, 160, 115, 80, () => { seed(700 + (i % 6));
+    cut(RR(-85, -50, 170, 100, 12), BLK[i % 6], {pat: i % 2 ? 'grid' : null});
+    cut(S([[-22, 32], [-22, -6], [0, -26], [22, -6], [22, 32]], 3), '#4a3f6b', {sh: .3}); ink([[-22, 6], [22, 6]], 4, RIM); ink([[0, -24], [0, 32]], 4, RIM);
+    ink([[-70, -36], [-40, -36]], 5, 'rgba(255,255,255,.6)'); });
+}
+function TROOF(){
+  return stamp('troof', 320, 320, 160, 250, () => { seed(720);
+    cut([[-118, 50], [0, -110], [118, 50]], '#e8798f', {pat: 'scale', rim: 4});
+    ink([[0, -110], [0, -196]], 6, '#8a5a35'); cut([[0, -196], [74, -172], [0, -148]], '#ffd45e', {sh: .4}); });
+}
+SC.tower = {w: W, fixedCam: true, walk: false,
+  init(){
+    G.flags.k = {n: 0, stack: [], ph: 0, drop: null, miss: null, camY: 0, attempt: 1, mul: 1, assist: false, busy: true, wobT: -9, wobA: 0,
+      fallen: false, debris: [], msg: null, hf: 0, hdir: 0, pose: {}, done: false, hx: TWR.cx, hy: 190, ref: TWR.cx, missN: 0};
+    G.sun.hidden = true; G.hu.hidden = true; G.sun.x = 400; G.sun.face = 1; G.hu.ov = {x: 600, y: 470, face: 1}; G.hu.x = 600; G.hu.y = 470;
+  },
+  omega(){ const k = G.flags.k; return (1.15 + .2 * k.n) * (k.attempt === 1 && k.n >= 4 ? 1.3 : 1) * k.mul; },
+  tap(){
+    const k = G.flags.k;
+    if(k.busy || k.drop || k.fallen || k.n > TWR.N) return;
+    k.drop = {x: k.hx, wy: k.hy - k.camY, vy: 0};
+  },
+  land(){
+    const k = G.flags.k, d = k.drop, top = TWR.base - k.n * TWR.BH;
+    let dx = d.x - k.ref;
+    if(k.assist) dx = clamp(dx * .3, -36, 36);
+    k.drop = null;
+    if(Math.abs(dx) > TWR.BW * .6){
+      k.miss = {x: d.x, y: top - TWR.BH / 2, vx: Math.sign(dx) * 280, vy: -320, rot: 0, i: k.n}; fx('fx_bump', .6);
+      if(!voiceDone){ const id = k.missN++ % 2 ? 'k_miss2' : 'k_miss1'; caption(LINES[id].t, true); voice(id); }
+      return;
+    }
+    const perfect = Math.abs(dx) < 16, x = perfect ? k.ref : clamp(k.ref + dx, TWR.cx - 230, TWR.cx + 230);
+    k.stack.push({x, i: k.n}); k.n++; k.ref = x; k.wobT = G.t; k.wobA = (dx / TWR.BW) * (10 + k.n * 3);
+    fx('fx_pop', .8, 1 + k.n * .07); if(perfect) fx('fx_chime', .35, 1 + k.n * .05);
+    for(let j = 0; j < 2 + k.n; j++) part('star', x + (j - (1 + k.n) / 2) * 44, top + k.camY - 30, {world: false, vy: -120 - 30 * (j % 3), vx: (j - (1 + k.n) / 2) * 30, life: 1.1 + k.n * .05, s: .6 + k.n * .04});
+    k.msg = {text: k.n > TWR.N ? '封顶！' : perfect ? '正正好！' : '第 ' + k.n + ' 层', t0: G.t};
+  },
+  collapse(){
+    const k = G.flags.k; k.fallen = true; k.drop = null;
+    k.debris = k.stack.map((b, i) => ({x: b.x, y: TWR.base - i * TWR.BH - TWR.BH / 2, vx: (hash(i, 3, 5) - .4) * 700 + i * 40, vy: -200 - i * 60, rot: 0, vr: (hash(i, 4, 5) - .5) * 500, i: b.i}));
+    k.stack = []; k.n = 0; k.ref = TWR.cx;
+  },
+  update(dt){
+    const k = G.flags.k, T = TWR;
+    const want = k.fallen ? 0 : (k.done ? Math.max(0, k.n * T.BH - 520) : Math.max(0, k.n * T.BH - 300));
+    k.camY += (want - k.camY) * Math.min(1, dt * 3);
+    k.ph += this.omega() * dt; k.hx = T.cx + T.A * Math.sin(k.ph); k.hy = 196 + 26 * Math.cos(2 * k.ph);
+    if(k.drop){ const d = k.drop; d.vy += 3200 * dt; d.wy += d.vy * dt; if(d.wy + T.BH / 2 >= T.base - k.n * T.BH) this.land(); }
+    if(k.miss){ const m = k.miss; m.vy += 2400 * dt; m.x += m.vx * dt; m.y += m.vy * dt; m.rot += Math.sign(m.vx) * 300 * dt; if(m.y > T.base + 300) k.miss = null; }
+    for(const b of k.debris){ b.vy += 2200 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.rot += b.vr * dt;
+      if(b.y > T.base - 44){ b.y = T.base - 44; b.vy = 0; b.vx *= Math.max(0, 1 - dt * 6); b.vr *= Math.max(0, 1 - dt * 8); } }
+    const hfWant = k.hfSet ?? (k.assist ? .08 : clamp((k.n - 2) / 4, 0, k.attempt === 1 ? 1 : .7));
+    k.hf += (hfWant - k.hf) * Math.min(1, dt * 3);
+  },
+  draw(cam, t){
+    const k = G.flags.k, T = TWR, cy = k.camY, kk = Math.floor(t * 9);
+    layer('k0', 0, 0, W, () => { seed(100); skyStrips(['#8fc6e6', '#a9d8ee', '#c6e6f2', '#e3f3ee']); sunPaper(240, 170, 70, 0); for(let i = 0; i < 4; i++) cloudPaper(520 + i * 430, 140 + (i * 83) % 150, 1 + (i % 3) * .2); });
+    layer('k1', 0, 0, W, () => { seed(130); hill(0, 0, x => 700 + 36 * Math.sin(x * .004), '#c3e6b6', {pat: 'dots'}); tree(1560, 800, .9); tree(180, 790, .7);
+      hill(0, 0, x => GY - 12 + 7 * Math.sin(x * .01), '#80c079', {pat: 'stripes'}); fence(0, GY + 2, -40, 2000);
+      for(const [x, c] of [[250, '#f6a3bd'], [700, '#ffd56b'], [1500, '#c7a6ea'], [1750, '#f6a3bd']]) flower(x, GY + 8, c); }, cy);
+    // the tower, swaying more the higher it gets
+    const sway = i => (k.n ? i / k.n : 0) * (k.wobA * Math.sin((t - k.wobT) * 9) * Math.exp(-(t - k.wobT) * 2.2)
+      + (k.attempt === 1 && k.n >= 4 ? (k.n - 3) * 7 * Math.sin(t * 5) : 0) + (k.bigWob ? 34 * Math.sin((t - k.bigWob) * 13) * Math.min(1, (t - k.bigWob)) : 0));
+    k.stack.forEach((b, i) => { if(i < T.N) put(TB(b.i), b.x + sway(i + 1), T.base - i * T.BH - T.BH / 2 + cy, 1, sway(i + 1) * .08); else put(TROOF(), b.x + sway(i + 1), T.base - i * T.BH - 50 + cy); });
+    for(const b of k.debris) put(TB(b.i), b.x, b.y + cy, 1, b.rot);
+    // the crane rope and the piece hanging from it
+    if(!k.fallen && !k.done && k.n <= T.N){
+      seed(740); ink([[T.cx, -40], [k.hx, k.hy - 60]], 5, '#8a5a35', {jit: .5});
+      if(!k.drop){ const r = -Math.cos(k.ph) * 9; if(k.n < T.N) put(TB(k.n), k.hx, k.hy, 1, r); else put(TROOF(), k.hx, k.hy + 10, 1, r); }
+    }
+    if(k.drop){ if(k.n < T.N) put(TB(k.n), k.drop.x, k.drop.wy + cy); else put(TROOF(), k.drop.x, k.drop.wy + cy + 10); }
+    if(k.miss) put(TB(k.miss.i), k.miss.x, k.miss.y + cy, 1, k.miss.rot);
+    // the cast
+    drawSunshine(Object.assign({x: 400, y: GY + cy, s: SS, t, eyes: (Math.floor(t * FPS) % 46 < 2) ? 'blink' : 'open', mouth: 'rest'}, k.pose, G.talking === 'S' ? {mouth: lip(true, kk) || 'rest'} : {}));
+    drawHuhu({x: G.hu.x, y: G.hu.y + 10 * Math.sin(t * 2.4), s: 1.15, f: k.hf, fdir: k.hdir || -35, eye: k.hf > .6 ? 'open' : 'happy', wing: Math.floor(t * 6) % 2});
+    G.actors.S = {x: 400, y: GY + cy - 360, screen: true}; G.actors.H = {x: G.hu.x, y: G.hu.y - 110, screen: true};
+    // floor counter and pop-up words
+    seed(760); cut(RR(W - 330, 150, 250, 86, 20), '#fffaf0', {sh: 1}); label(Math.min(k.n, T.N) + ' / ' + T.N + ' 层', W - 205, 196, 46, INK);
+    if(k.msg && t - k.msg.t0 < 1.1){ const u = (t - k.msg.t0) / 1.1; ctx.save(); ctx.globalAlpha = 1 - u * u; label(k.msg.text, T.cx, 380 - u * 70, 84 + k.n * 3, '#fffaf0', {stroke: DPINK, sw: 16}); ctx.restore(); }
+  },
+  arm(){ G.task = {type: 'tap', left: 1e9, onTap: () => SC.tower.tap(), res(){}}; },
+  async enter(){
+    const k = G.flags.k, T = TWR;
+    hint('t_tower'); k.busy = false; this.arm();
+    await waitFor(() => k.n >= 4); say('k_fast');
+    await waitFor(() => k.n >= 6);
+    // it wobbles... and tumbles. This one cannot be saved.
+    G.task = null; k.busy = true; k.bigWob = G.t; k.pose = {eyes: 'wide', mouth: 'o', armL: 150, armR: 150}; await step(wait(1500));
+    this.collapse(); k.bigWob = 0; fx('fx_crash'); await step(wait(1300)); await step(say('k_fall'));
+    k.pose = {eyes: 'cry', mouth: 'wail', tears: true, armL: 150, armR: 150}; k.hfSet = 1; k.hdir = -60; fx('fx_big');
+    await step(say('k_cry')); await step(say('a_blk3'));
+    await tearPuff(); k.hfSet = .1; k.hdir = -35; await step(say('a_blk4'));
+    k.pose = {eyes: 'happy', mouth: 'rest'}; await step(say('a_blk5'));
+    // second try
+    k.debris = []; k.fallen = false; k.attempt = 2; k.hfSet = undefined; k.pose = {}; hint('k_retry'); k.busy = false; this.arm();
+    await waitFor(() => k.n >= 4);
+    G.task = null; k.busy = true; k.pose = {eyes: 'wide', mouth: 'o'}; k.hfSet = .75; await step(say('k_breath'));
+    k.pose = {eyes: 'closed', mouth: 'o'}; caption(LINES.p_breath2.t, true); await step(voice('p_breath2'));
+    await step(breathTask(2, left => { k.mul = left ? .78 : .55; k.hfSet = left ? .4 : .08; part('puff', G.hu.x, G.hu.y - 110, {vy: -42, life: 3, wob: 10}); }, true));
+    k.assist = true; k.mul = .55; k.hfSet = undefined; k.pose = {eyes: 'happy', mouth: 'rest'}; fx('fx_chime');
+    await step(say('k_calm')); await step(say('k_h')); k.pose = {}; hint('t_tower2'); k.busy = false; this.arm();
+    await waitFor(() => k.n > T.N);
+    G.task = null; k.busy = true; k.done = true; caption(''); fx('fx_chime2');
+    for(let j = 0; j < 14; j++) part('star', T.cx + (j - 7) * 70, 300 + 60 * (j % 3), {world: false, vy: -80 - 30 * (j % 4), vx: (j - 7) * 24, life: 2.2});
+    k.pose = {eyes: 'happy', mouth: 'grin', armL: 150, armR: 150}; await step(wait(1200)); await step(say('k_done')); await step(wait(1400));
+    goScene('garden', {keep: true});
+  },
+};
 
 // ---------------------------------------------------------------- boot
 fit(); G.scene = SC.title; G.fade = 0; G.fadeTo = 0; requestAnimationFrame(frame);
@@ -1237,6 +1429,6 @@ $('b-skip').onclick = () => stopVoice();
 $('b-next').onclick = () => { const i = ORDER.indexOf(Object.keys(SC).find(k => SC[k] === G.scene)); if(i < ORDER.length - 1) goScene(ORDER[i + 1]); };
 $('b-music').onclick = () => { musicOn = !musicOn; $('b-music').setAttribute('aria-pressed', !musicOn); if(musicOn) tryPlay(musicEl); else musicEl.pause(); };
 document.addEventListener('visibilitychange', () => { if(document.hidden && !G.paused) $('b-pause').onclick(); });
-window.__g = {G, SC, goScene, garden, meadow, hilltop};
+window.__g = {G, SC, goScene, garden, meadow, hilltop, render};
 </script>
 </body></html>
